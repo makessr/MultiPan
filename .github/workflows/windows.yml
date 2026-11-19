@@ -43,6 +43,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Wails 安装失败' }
           $cliDirectory >> $env:GITHUB_PATH
       - name: 构建并执行自动回归
+        # Shell links resolve 8.3 paths to long names. Use the runner's
+        # canonical temp path so installer test fixtures use the same spelling.
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: ./scripts/build.ps1 -AppName multipan -SkipDesktopSmoke
       - name: 打包当前用户安装程序
         run: |
