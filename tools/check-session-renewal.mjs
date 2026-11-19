@@ -1,0 +1,36 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import {pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
+import assert from 'node:assert/strict';
+const root=path.resolve(import.meta.dirname,'../frontend'),require=createRequire(path.join(root,'package.json'));
+const {parse,compileScript}=require('@vue/compiler-sfc'),ts=require('typescript');
+const vueURL=pathToFileURL(path.join(root,'node_modules/vue/dist/vue.runtime.esm-bundler.js')).href;
+const {reactive,nextTick}=await import(vueURL);
+const temp=await fs.mkdtemp(path.join(os.tmpdir(),'multipan-session-renewal-'));
+const url=n=>pathToFileURL(path.join(temp,n)).href;
+try{
+ await fs.writeFile(path.join(temp,'hooks.mjs'),`export {defineComponent,computed,ref,watch} from ${JSON.stringify(vueURL)};export const cleanup=[];export function onMounted(){};export function onUnmounted(fn){cleanup.push(fn)}`);
+ await fs.writeFile(path.join(temp,'api.mjs'),`export const calls={reads:0,preferences:[],renew:[],checks:[]};export const state={views:[{accountId:'p',enabled:false,pending:false,busy:false,outcome:''},{accountId:'q',enabled:false,pending:true,busy:false,outcome:'unconfirmed'}],hold:null,fail:false,checkMode:'success'};export async function SessionRenewals(){calls.reads++;return structuredClone(state.views)}export async function SetSessionAutoRenew(id,value){calls.preferences.push({id,value});state.views.find(r=>r.accountId===id).enabled=value}export async function CheckSessionRenewal(id){calls.checks.push(id);if(state.hold)await state.hold;const r=state.views.find(r=>r.accountId===id);r.enabled=false;if(state.checkMode==='failed')throw Error('身份核对未完成');if(state.checkMode==='mismatch'){r.canCheck=false;r.outcome='candidate_mismatch';throw Error('身份不一致，请重新登录')}r.pending=false;r.canCheck=false;r.outcome='confirmed';return structuredClone(r)}export async function RenewAccountSession(id){calls.renew.push(id);if(state.hold)await state.hold;const r=state.views.find(r=>r.accountId===id);if(state.fail){r.pending=true;r.enabled=false;r.outcome='unconfirmed';throw Error('更新未确认，请手动登录')}r.pending=false;r.outcome='confirmed';return structuredClone(r)}`);
+ let script=compileScript(parse(await fs.readFile(path.join(root,'src/SessionRenewal.vue'),'utf8')).descriptor,{id:'session-renewal-check'}).content;
+ script=script.replace(/from ['"]vue['"]/g,'from '+JSON.stringify(url('hooks.mjs'))).replace(/from ['"]\.\.\/bindings\/multipan\/desktopservice['"]/g,'from '+JSON.stringify(url('api.mjs')));
+ await fs.writeFile(path.join(temp,'component.mjs'),ts.transpileModule('const setTimeout=()=>0,clearTimeout=()=>{};\n'+script,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);
+ const {default:component}=await import(url('component.mjs')),{calls,state}=await import(url('api.mjs')),{cleanup}=await import(url('hooks.mjs'));
+ const props=reactive({accounts:[{id:'p',kind:'pan123',name:'P'},{id:'q',kind:'pan123',name:'Q'},{id:'b',kind:'baidu',name:'B'}],blocked:false,refreshKey:'0'}),events=[];
+ const panel=component.setup(props,{expose(){},emit:(...args)=>events.push(args)});
+ await panel.load();assert.equal(panel.accounts.value.length,2);assert.equal(calls.renew.length,0);assert.equal(calls.preferences.length,0);assert.equal(panel.view('p').enabled,false);
+ panel.prepare('q');assert.equal(panel.confirmID.value,'');panel.prepare('p');assert.equal(panel.confirmID.value,'p');assert.equal(calls.renew.length,0);await panel.toggle('p');assert.equal(calls.preferences.length,0,'preference changed beneath confirmation');panel.confirmID.value='';assert.equal(calls.renew.length,0,'cancel sent refresh');
+ props.blocked=true;await panel.toggle('p');panel.prepare('p');assert.equal(calls.preferences.length,0);assert.equal(panel.confirmID.value,'');props.blocked=false;
+ await panel.toggle('p');assert.deepEqual(calls.preferences,[{id:'p',value:true}]);assert.equal(panel.view('p').enabled,true);assert.equal(calls.renew.length,0,'enabling preference ran direct refresh');
+ panel.prepare('p');let release;state.hold=new Promise(resolve=>release=resolve);const pending=panel.renew();await panel.renew();panel.login('q');assert.equal(calls.renew.length,1);assert.equal(events.filter(e=>e[0]==='account').length,0);release();state.hold=null;await pending;assert.equal(panel.view('p').outcome,'confirmed');assert.match(panel.message.value,/保存/);
+ await panel.toggle('p');assert.deepEqual(calls.preferences.at(-1),{id:'p',value:false});state.fail=true;panel.prepare('p');await panel.renew();assert.equal(panel.view('p').pending,true);assert.match(panel.error.value,/未确认/);const count=calls.renew.length;panel.prepare('p');await panel.renew();await panel.toggle('p');assert.equal(calls.renew.length,count);panel.login('p');assert.deepEqual(events.filter(e=>e[0]==='account').at(-1),['account','p']);
+ const refreshCount=calls.renew.length;await panel.check('q');assert.equal(calls.checks.length,0,'legacy unknown without candidate checked');
+ state.views[0].canCheck=true;await panel.load();props.blocked=true;await panel.check('p');assert.equal(calls.checks.length,0);props.blocked=false;
+ state.checkMode='failed';await panel.check('p');assert.equal(panel.view('p').pending,true);assert.equal(panel.view('p').canCheck,true);assert.equal(panel.view('p').enabled,false);
+ state.checkMode='mismatch';await panel.check('p');assert.equal(panel.view('p').canCheck,false);assert.equal(panel.view('p').pending,true);await panel.check('p');assert.equal(calls.checks.length,2);
+ state.views[0].canCheck=true;state.checkMode='success';await panel.load();state.hold=new Promise(resolve=>release=resolve);const recovering=panel.check('p');await panel.check('p');assert.equal(calls.checks.length,3);release();state.hold=null;await recovering;assert.equal(panel.view('p').pending,false);assert.equal(panel.view('p').enabled,false);assert.match(panel.message.value,/核对并保存/);assert.equal(calls.renew.length,refreshCount,'read-only recovery refreshed credential');
+ state.fail=false;state.views[0].pending=false;await panel.load();panel.prepare('p');props.refreshKey='new-source';await nextTick();await Promise.resolve();assert.equal(panel.confirmID.value,'');
+ state.hold=new Promise(resolve=>release=resolve);panel.prepare('p');const late=panel.renew();for(const fn of cleanup)fn();release();state.hold=null;await late;assert.equal(panel.message.value,'');assert.equal(events.at(-1)[1],false);
+ console.log('Session renewal component checks passed: local-only read/default off, exact account, explicit confirmation/cancel, pending/blocked guards, enable/disable, duplicate prevention, verified result, unknown pause/relogin, source invalidation and unmount.');
+}finally{const absolute=path.resolve(temp),base=path.resolve(os.tmpdir());if(path.dirname(absolute)!==base||!path.basename(absolute).startsWith('multipan-session-renewal-'))throw Error('Refusing cleanup outside owned test directory');await fs.rm(absolute,{recursive:true,force:true})}

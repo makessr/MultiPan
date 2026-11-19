@@ -1,0 +1,13 @@
+.task
+.wails
+bin
+frontend/dist
+frontend/node_modules
+.multipan-setup-check/
+tools/setup/payload/payload.zip
+tools/setup/*.syso
+.multipan-installer.lock
+/build-*.log
+/releases/
+/assets/branding/backups/
+/docs/drafts/

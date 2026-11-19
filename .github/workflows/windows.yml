@@ -1,0 +1,63 @@
+name: Windows 构建
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64 构建与验证
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: 配置 Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: 配置 Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 安装与项目匹配的 Wails CLI
+        run: |
+          $version = go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3
+          if ($LASTEXITCODE -ne 0 -or !$version) { throw '无法读取 Wails 版本' }
+          $cliDirectory = Join-Path $env:RUNNER_TEMP 'wails-cli'
+          $env:GOBIN = $cliDirectory
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$version"
+          if ($LASTEXITCODE -ne 0) { throw 'Wails 安装失败' }
+          $cliDirectory >> $env:GITHUB_PATH
+      - name: 构建并执行自动回归
+        run: ./scripts/build.ps1 -AppName multipan -SkipDesktopSmoke
+      - name: 打包当前用户安装程序
+        run: |
+          ./scripts/package-installer.ps1 -ApplicationPath bin/multipan.exe -OutputPath bin/MultiPan-setup.exe
+          $hash = (Get-FileHash -LiteralPath bin/multipan.exe -Algorithm SHA256).Hash
+          "$hash  multipan.exe" | Set-Content -LiteralPath bin/multipan.exe.sha256 -Encoding ascii
+      - name: 上传便携版与安装包
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: MultiPan-Windows-x64
+          if-no-files-found: error
+          path: |
+            bin/multipan.exe
+            bin/multipan.exe.sha256
+            bin/MultiPan-setup.exe
+            bin/MultiPan-setup.exe.sha256
+            TRIAL-GUIDE.txt
+            THIRD_PARTY_NOTICES.md

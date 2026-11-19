@@ -1,0 +1,47 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import {pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
+import assert from 'node:assert/strict';
+const root=path.resolve(import.meta.dirname,'../frontend'),require=createRequire(path.join(root,'package.json'));
+const {parse,compileScript}=require('@vue/compiler-sfc'),ts=require('typescript');
+const vueURL=pathToFileURL(path.join(root,'node_modules/vue/dist/vue.runtime.esm-bundler.js')).href;
+const {reactive,nextTick}=await import(vueURL);
+const temp=await fs.mkdtemp(path.join(os.tmpdir(),'multipan-pending-review-'));
+const url=n=>pathToFileURL(path.join(temp,n)).href;
+try{
+ await fs.writeFile(path.join(temp,'hooks.mjs'),`export {defineComponent,computed,ref,watch} from ${JSON.stringify(vueURL)};export const cleanup=[];export function onMounted(){};export function onUnmounted(fn){cleanup.push(fn)}`);
+ await fs.writeFile(path.join(temp,'api.mjs'),`export const calls={checks:[],reads:0};export const control={snapshot:{rows:null,total:0,limited:false},hold:null,readHold:null,failAt:0,outcome:'unknown',readFail:false};export async function PendingReview(){calls.reads++;const value=structuredClone(control.snapshot),hold=control.readHold;control.readHold=null;if(hold)await hold;if(control.readFail)throw Error('local read failed');return value}export async function CheckPendingReview(kind,id){calls.checks.push({kind,id});const n=calls.checks.length;if(control.hold)await control.hold;if(n===control.failAt)throw Error('check unavailable');if(control.outcome==='confirmed'){control.snapshot.rows=control.snapshot.rows.filter(r=>r.kind!==kind||r.id!==id);control.snapshot.total=control.snapshot.rows.length}return {state:control.outcome,message:'original receipt only'}}`);
+ let script=compileScript(parse(await fs.readFile(path.join(root,'src/PendingReview.vue'),'utf8')).descriptor,{id:'pending-review-check'}).content;
+ script=script.replace(/from ['"]vue['"]/g,'from '+JSON.stringify(url('hooks.mjs'))).replace(/from ['"]\.\.\/bindings\/multipan\/desktopservice['"]/g,'from '+JSON.stringify(url('api.mjs')));
+ await fs.writeFile(path.join(temp,'component.mjs'),ts.transpileModule(script,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);
+ const {default:component}=await import(url('component.mjs')),{control,calls}=await import(url('api.mjs')),{cleanup}=await import(url('hooks.mjs'));
+ const props=reactive({accounts:[{id:'a',kind:'baidu',name:'private account'},{id:'b',kind:'quark',name:'other account'}],blocked:false,refreshKey:'0'}),events=[];
+ const panel=component.setup(props,{expose(){},emit:(...args)=>events.push(args)});
+ const makeRows=count=>Array.from({length:count},(_,i)=>({key:(i%4===0?'relay':'copy')+':'+i,kind:i%4===0?'relay':'copy',id:''+i,accountId:i%2?'a':'b',name:'文件'+i,state:'unknown',created:'2026-11-18T00:00:00Z',canCheck:i%4!==0}));
+ function setRows(count){control.snapshot={rows:makeRows(count),total:count,limited:false}}
+ await panel.load();assert.equal(panel.rows.value.length,0);assert.equal(calls.checks.length,0);
+ setRows(120);await panel.load();assert.equal(panel.pages.value,3);panel.page.value=3;await nextTick();assert.equal(panel.visible.value.length,20);panel.page.value=1;await nextTick();panel.selectPage();assert.equal(panel.chosen.value.length,20);for(const r of panel.visible.value)panel.toggle(r.key,true);assert.equal(panel.selection.value.length,20);
+ props.blocked=true;await panel.run();assert.equal(calls.checks.length,0);props.blocked=false;
+ let release;control.hold=new Promise(resolve=>release=resolve);const pending=panel.run();await panel.run();assert.equal(calls.checks.length,1);panel.stopRequested.value=true;release();control.hold=null;await pending;assert.equal(calls.checks.length,1);assert.equal(panel.results.value.filter(r=>r.state==='skipped').length,19);assert.equal(panel.rows.value.length,120,'unknown receipts lost');
+ calls.checks.length=0;panel.selectPage();control.failAt=2;await panel.run();assert.equal(calls.checks.length,2);assert.equal(panel.results.value[1].state,'error');assert.equal(panel.results.value.at(-1).state,'skipped');control.failAt=0;
+ calls.checks.length=0;control.outcome='confirmed';panel.selectPage();await panel.run();assert.equal(calls.checks.length,20);assert.equal(panel.rows.value.length,100);assert.equal(panel.selection.value.length,0);
+ const previous=panel.results.value[0];
+ await panel.run([panel.rows.value.find(r=>r.canCheck)]);
+ assert.equal(panel.results.value.length,1);
+ assert.equal(panel.previousResults?.value?.some(r=>r.name===previous.name&&r.state==='confirmed'),true);
+ panel.selectPage();panel.kind.value='relay';await nextTick();assert.equal(panel.selection.value.length,0);assert.equal(panel.filtered.value.every(r=>r.kind==='relay'),true);panel.selectPage();assert.equal(panel.chosen.value.length,0);const before=calls.checks.length;await panel.run([panel.filtered.value[0]]);assert.equal(calls.checks.length,before,'relay check submitted');panel.open(panel.filtered.value[0]);assert.equal(events.at(-1)[0],'open');assert.equal(events.at(-1)[1],'relay');
+ panel.kind.value='';panel.query.value='文件119';await nextTick();assert.equal(panel.filtered.value.length,1);panel.query.value='';panel.eligibleOnly.value=true;await nextTick();assert.equal(panel.filtered.value.every(r=>r.canCheck),true);panel.eligibleOnly.value=false;await nextTick();
+ const routed=panel.rows.value[0];panel.open(routed);assert.deepEqual(events.at(-1),['open',routed.kind,routed.accountId,routed.id]);
+ const legacy={...makeRows(2)[1],key:'restore:legacy',kind:'restore',id:'legacy'};
+ control.snapshot={rows:[legacy],total:1,limited:false};await panel.load();
+ const beforeLegacyOpen=events.length;panel.open(panel.rows.value[0]);assert.equal(events.length,beforeLegacyOpen);
+ assert.equal(panel.hasOriginalModule('purge'),false);assert.equal(panel.hasOriginalModule('trash'),true);
+ control.outcome='unknown';await panel.run(panel.rows.value);assert.deepEqual(calls.checks.at(-1),{kind:'restore',id:'legacy'});
+ control.snapshot={rows:makeRows(50),total:2001,limited:true};await panel.load();assert.equal(panel.limited.value,true);assert.equal(panel.total.value,2001);
+ control.readHold=new Promise(resolve=>release=resolve);const stale=panel.load();control.snapshot={rows:makeRows(3),total:3,limited:false};props.refreshKey='new-source';await nextTick();release();await stale;assert.equal(panel.total.value,3,'late local snapshot replaced new source');assert.equal(panel.results.value.length,0);assert.equal(panel.previousResults.value.length,0);
+ control.readFail=true;await panel.load();assert.match(panel.error.value,/读取本机回执失败/);control.readFail=false;
+ setRows(3);await panel.load();control.outcome='unknown';control.hold=new Promise(resolve=>release=resolve);const late=panel.run([panel.rows.value[1]]);const count=calls.checks.length;for(const fn of cleanup)fn();release();control.hold=null;await late;assert.equal(calls.checks.length,count);assert.equal(events.at(-1)[1],false);
+ console.log('Pending review checks passed: local-only refresh, null/limited snapshots, filters/pages, 20-item selection, blocked/duplicate guards, stop/error partial results, unknown retention, confirmed refresh, relay exclusion, module routing, source invalidation and unmount protection.');
+}finally{const absolute=path.resolve(temp),base=path.resolve(os.tmpdir());if(path.dirname(absolute)!==base||!path.basename(absolute).startsWith('multipan-pending-review-'))throw Error('Refusing cleanup outside owned test directory');await fs.rm(absolute,{recursive:true,force:true})}
