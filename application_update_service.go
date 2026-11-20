@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"multipan/internal/installation"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,9 @@ func readApplicationUpdateChannel() (ApplicationUpdateInfo, string, ed25519.Publ
 		return ApplicationUpdateInfo{}, "", nil
 	}
 	info := ApplicationUpdateInfo{CurrentVersion: version}
+	if runtime.GOARCH != "amd64" {
+		return info, "", nil
+	}
 	var channel applicationUpdateChannel
 	if json.Unmarshal(updateChannelJSON, &channel) != nil {
 		return info, "", nil

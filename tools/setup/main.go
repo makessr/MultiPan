@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -78,8 +80,12 @@ func run() error {
 	if e != nil {
 		return e
 	}
+	arch, e := installation.ExecutableArchitecture(bytes.NewReader(bundle.Files[installation.App]))
+	if e != nil || arch != runtime.GOARCH {
+		return fmt.Errorf("安装器和内嵌客户端架构不一致")
+	}
 	if *inspect {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{"version": bundle.Version, "scope": "current-user", "architecture": "windows-x64", "files": installation.PayloadNames, "webViewInstalled": installation.WebViewInstalled()})
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"version": bundle.Version, "scope": "current-user", "architecture": installation.InstallerPlatform(arch), "files": installation.PayloadNames, "webViewInstalled": installation.WebViewInstalled()})
 	}
 	config, e := os.UserConfigDir()
 	if e != nil {

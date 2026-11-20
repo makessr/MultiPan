@@ -1,4 +1,4 @@
-param([string]$Installer='',[string]$PreviousApplication='bin/multipan-0.77.0.exe',[switch]$CustomDirectory)
+param([string]$Installer='',[string]$PreviousApplication='bin/multipan-0.77.0.exe',[switch]$CustomDirectory,[string]$ApplicationPath='')
 $ErrorActionPreference='Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 $version=[regex]::Match((Get-Content frontend/src/version.ts -Raw),"APP_VERSION\s*=\s*'([^']+)'").Groups[1].Value
@@ -32,7 +32,8 @@ if($CustomDirectory){
 }
 Run-Setup 'install'
 $app=Join-Path $program 'MultiPan.exe';$marker=Join-Path $program '.multipan-install.json'
-$expectedApp=(Get-FileHash -LiteralPath ('bin/multipan-'+$version+'.exe') -Algorithm SHA256).Hash
+if(-not $ApplicationPath){$ApplicationPath='bin/multipan-'+$version+'.exe'}
+$expectedApp=(Get-FileHash -LiteralPath $ApplicationPath -Algorithm SHA256).Hash
 if((Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash -ne $expectedApp){throw 'Installed application hash mismatch'}
 $extra=Join-Path $program 'user-notes.txt';[IO.File]::WriteAllText($extra,'keep unrelated user file')
 $extraHash=(Get-FileHash -LiteralPath $extra -Algorithm SHA256).Hash

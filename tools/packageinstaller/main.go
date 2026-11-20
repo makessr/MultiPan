@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -48,9 +50,19 @@ func build(exe, out string) error {
 	if e != nil || appVersion != v {
 		return fmt.Errorf("应用程序版本与安装器不符：%s / %s", appVersion, v)
 	}
+	app, e := os.Open(exe)
+	if e != nil {
+		return e
+	}
+	arch, e := installation.ExecutableArchitecture(app)
+	_ = app.Close()
+	if e != nil {
+		return e
+	}
+	platform := installation.InstallerPlatform(arch)
 	explicitOutput := out != ""
 	if !explicitOutput {
-		out = filepath.Join("releases", "MultiPan-"+v+"-windows-x64-setup.exe")
+		out = filepath.Join("releases", "MultiPan-"+v+"-"+platform+"-setup.exe")
 	} else if !strings.EqualFold(filepath.Ext(out), ".exe") {
 		return fmt.Errorf("安装器输出必须为 EXE")
 	}
@@ -71,7 +83,7 @@ func build(exe, out string) error {
 			}
 		}
 	}
-	syso := filepath.Join("tools", "setup", "setup_windows_amd64.syso")
+	syso := filepath.Join("tools", "setup", "setup_windows_"+arch+".syso")
 	if _, e = os.Stat(syso); !os.IsNotExist(e) {
 		return fmt.Errorf("已有安装器资源文件，未覆盖")
 	}
@@ -79,30 +91,64 @@ func build(exe, out string) error {
 		return e
 	}
 	defer os.Remove(syso)
-	if e = command("wails3", "generate", "syso", "-arch", "amd64", "-icon", "build/windows/icon.ico", "-manifest", "build/windows/wails.exe.manifest", "-info", "build/windows/info.json", "-out", syso); e != nil {
+	if e = command("wails3", "generate", "syso", "-arch", arch, "-icon", "build/windows/icon.ico", "-manifest", "build/windows/wails.exe.manifest", "-info", "build/windows/info.json", "-out", syso); e != nil {
 		return e
 	}
-	if e = command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-w -s -H windowsgui", "-o", out, "./tools/setup"); e != nil {
+	compile := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-w -s -H windowsgui", "-o", out, "./tools/setup")
+	compile.Env = append(os.Environ(), "GOOS=windows", "GOARCH="+arch, "CGO_ENABLED=0")
+	compile.Stdout, compile.Stderr = os.Stdout, os.Stderr
+	if e = compile.Run(); e != nil {
 		return e
-	}
-	inspection, e := exec.Command(out, "--inspect").Output()
-	if e != nil {
-		return e
-	}
-	var meta struct {
-		Version string `json:"version"`
-		Scope   string `json:"scope"`
-	}
-	if json.Unmarshal(inspection, &meta) != nil || meta.Version != v || meta.Scope != "current-user" {
-		return fmt.Errorf("安装器内嵌版本或范围不符")
 	}
 	raw, e := os.ReadFile(out)
 	if e != nil {
+		return e
+	}
+	if e = verifyInstaller(out, raw, exe, v, arch); e != nil {
 		return e
 	}
 	hash := strings.ToUpper(installation.Digest(raw))
 	if e = os.WriteFile(out+".sha256", []byte(hash+"  "+filepath.Base(out)+"\r\n"), 0600); e != nil {
 		return e
 	}
-	return json.NewEncoder(os.Stdout).Encode(map[string]any{"Installer": out, "Bytes": len(raw), "SHA256": hash, "Scope": meta.Scope, "Version": v})
+	return json.NewEncoder(os.Stdout).Encode(map[string]any{"Installer": out, "Bytes": len(raw), "SHA256": hash, "Scope": "current-user", "Version": v, "Architecture": platform, "RuntimeInspected": arch == runtime.GOARCH})
+}
+
+func verifyInstaller(path string, executable []byte, appPath, version, arch string) error {
+	actualArch, err := installation.ExecutableArchitecture(bytes.NewReader(executable))
+	if err != nil || actualArch != arch {
+		return fmt.Errorf("安装器架构与应用程序不符")
+	}
+	payload, err := os.ReadFile("tools/setup/payload/payload.zip")
+	if err != nil {
+		return err
+	}
+	bundle, err := installation.Decode(payload)
+	if err != nil {
+		return err
+	}
+	app, err := os.ReadFile(appPath)
+	if err != nil {
+		return err
+	}
+	if bundle.Version != version || !bytes.Equal(bundle.Files[installation.App], app) || !bytes.Contains(executable, payload) {
+		return fmt.Errorf("安装器内容与已核对的版本或应用程序不符")
+	}
+	if arch != runtime.GOARCH {
+		return nil
+	}
+	inspection, err := exec.Command(path, "--inspect").Output()
+	if err != nil {
+		return err
+	}
+	var meta struct {
+		Version      string `json:"version"`
+		Scope        string `json:"scope"`
+		Architecture string `json:"architecture"`
+	}
+	if json.Unmarshal(inspection, &meta) != nil || meta.Version != version || meta.Scope != "current-user" ||
+		meta.Architecture != installation.InstallerPlatform(arch) {
+		return fmt.Errorf("安装器内嵌版本、范围或架构不符")
+	}
+	return nil
 }
