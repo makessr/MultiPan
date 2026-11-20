@@ -78,6 +78,7 @@ export async function EnqueueReviewedUploads(files,targets,skips,stamp){calls.re
 export async function RetryFailedUploads(ids){calls.failedRetries??=[];calls.failedRetries.push([...ids]);if(controls.holdFailedRetry)await new Promise(resolve=>controls.releaseFailedRetry=resolve);return ids.map(id=>({id,name:id,applied:true,message:'重试请求已提交'}))}
 export async function Enqueue(files,targets){calls.uploads.push({files:[...files],targets});return files.length}
 export function SetDefaultFolder(){calls.defaults++;throw Error('Unexpected default-folder change')}
+export async function DesktopPlatform(){return 'windows'}
 export async function Snapshot(){return {accounts:controls.snapshotAccounts??[],tasks:(controls.snapshotTasks??[]).map(t=>({...t,file:{...t.file}})),storageError:''}}
 export async function SaveAccount(input){calls.savedAccounts??=[];calls.savedAccounts.push(input);const output={...input,secret:undefined};controls.snapshotAccounts=(controls.snapshotAccounts??[]).map(a=>a.id===input.id?output:a);return output}
 export async function LoginGuangya(id,name,folder){calls.accountLogins??=[];calls.accountLogins.push({id,name,folder});const a=controls.snapshotAccounts.find(a=>a.id===id);const updated={...a,id,name,folder};controls.snapshotAccounts=controls.snapshotAccounts.map(a=>a.id===id?updated:a);return updated}

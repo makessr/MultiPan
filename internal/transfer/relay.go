@@ -15,8 +15,6 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
-
-	"golang.org/x/sys/windows"
 )
 
 const relayMaxFile int64 = 8 << 30
@@ -544,39 +542,6 @@ func relaySafePath(root, id string) (string, error) {
 		}
 	}
 	return dir, nil
-}
-func relayNoLink(p string) error {
-	name, e := windows.UTF16PtrFromString(p)
-	if e != nil {
-		return e
-	}
-	attrs, e := windows.GetFileAttributes(name)
-	if os.IsNotExist(e) {
-		return nil
-	}
-	if e != nil {
-		return e
-	}
-	if attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return errors.New("中转缓存含链接或重解析点，已停止")
-	}
-	return nil
-}
-func relayOpenCache(file string) (*os.File, error) {
-	name, e := windows.UTF16PtrFromString(file)
-	if e != nil {
-		return nil, e
-	}
-	h, e := windows.CreateFile(name, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
-	if e != nil {
-		return nil, e
-	}
-	var info windows.ByHandleFileInformation
-	if e = windows.GetFileInformationByHandle(h, &info); e != nil || info.FileAttributes&(windows.FILE_ATTRIBUTE_REPARSE_POINT|windows.FILE_ATTRIBUTE_DIRECTORY) != 0 || info.NumberOfLinks != 1 {
-		windows.CloseHandle(h)
-		return nil, errors.New("缓存不是独立常规文件，已停止")
-	}
-	return os.NewFile(uintptr(h), file), nil
 }
 func relayReadOwner(file string) ([]byte, error) {
 	f, e := relayOpenCache(file)

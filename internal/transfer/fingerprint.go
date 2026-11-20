@@ -6,11 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"os"
+
 	"strings"
 	"time"
-
-	"golang.org/x/sys/windows"
 )
 
 // UploadFingerprint is a local original, not a hash asserted by a provider.
@@ -30,17 +28,10 @@ type uploadReceipt struct {
 }
 
 func (u *HTTPUploader) uploadRecorded(ctx context.Context, a Account, f File, folder string, progress func(int64)) (uploadReceipt, error) {
-	// Deny writing/deleting for the entire hash + upload. All provider readers
-	// use this same handle, including seeks, sections and rapid-upload hashes.
-	name, e := windows.UTF16PtrFromString(f.Path)
+	file, e := openUploadSource(f.Path)
 	if e != nil {
-		return uploadReceipt{}, errors.New("源文件路径无效")
+		return uploadReceipt{}, e
 	}
-	handle, e := windows.CreateFile(name, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	if e != nil {
-		return uploadReceipt{}, errors.New("无法锁定源文件，请关闭正在修改此文件的程序后重试")
-	}
-	file := os.NewFile(uintptr(handle), f.Path)
 	defer file.Close()
 	if e = unchanged(file, f); e != nil {
 		return uploadReceipt{}, e
@@ -62,6 +53,9 @@ func (u *HTTPUploader) uploadRecorded(ctx context.Context, a Account, f File, fo
 	}
 	checkpoint(ctx).clear()
 	r := uploadReceipt{SHA256: hex.EncodeToString(hash.Sum(nil))}
+	if !canRecordUploadFingerprint(ctx, file, f, r.SHA256) {
+		return uploadReceipt{}, nil
+	}
 	// Failure to resolve metadata must not turn a completed upload into a
 	// retryable failure: doing so can create duplicates on some providers.
 	verify, cancel := context.WithTimeout(ctx, 10*time.Second)

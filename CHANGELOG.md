@@ -1,5 +1,10 @@
 # 更新记录
 
+## 桌面版构建
+
+- Linux 原生构建 amd64 和 ARM64 两个独立 Debian 安装包，分别附 SHA-256 校验文件。
+- macOS 分别构建 Apple Silicon 和 Intel 预览包。
+
 ## GitHub 首次公开
 
 - 公开 MultiPan 当前源码，整理核心能力、安装说明和开发优先级。

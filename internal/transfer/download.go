@@ -17,8 +17,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-
-	"golang.org/x/sys/windows"
 )
 
 type DownloadInput struct {
@@ -284,29 +282,6 @@ func (w *downloadWriter) Write(p []byte) (int, error) {
 		w.last = time.Now()
 	}
 	return n, e
-}
-
-func commitNewDownload(source, destination string) error {
-	extended := func(p string) string {
-		if strings.HasPrefix(p, `\\?\`) {
-			return p
-		}
-		if strings.HasPrefix(p, `\\`) {
-			return `\\?\UNC\` + strings.TrimPrefix(p, `\\`)
-		}
-		return `\\?\` + p
-	}
-	s, e := windows.UTF16PtrFromString(extended(source))
-	if e != nil {
-		return e
-	}
-	d, e := windows.UTF16PtrFromString(extended(destination))
-	if e != nil {
-		return e
-	}
-	// Same-directory rename, without MOVEFILE_REPLACE_EXISTING: the destination
-	// must still be absent at the final commit, even if another process created it.
-	return windows.MoveFileEx(s, d, 0)
 }
 
 func openDAVDownload(ctx context.Context, client *http.Client, a Account, in DownloadInput) (CloudEntry, *http.Response, error) {

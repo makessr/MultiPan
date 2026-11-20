@@ -43,7 +43,7 @@ if ($tree.truncated) { throw '无法读取提交的完整工作流清单。' }
 $windows = Confirm-Workflow -Workflow 'windows.yml' -RequiredJobs @('Windows x64 构建与验证','Windows arm64 构建与验证')
 $desktop = $null
 if ($tree.tree.path -contains '.github/workflows/desktop-unix.yml') {
- $desktop = Confirm-Workflow -Workflow 'desktop-unix.yml' -RequiredJobs @('Linux amd64','macOS Apple Silicon','macOS Intel')
+ $desktop = Confirm-Workflow -Workflow 'desktop-unix.yml' -RequiredJobs @('Linux amd64','Linux arm64','macOS Apple Silicon','macOS Intel')
 }
 
 [pscustomobject]@{
