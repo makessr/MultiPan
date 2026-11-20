@@ -60,6 +60,21 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 请确认 `wails3` 所在的 Go 工具目录已加入 `PATH`。构建脚本生成图标和 Wails 绑定，运行 Go 测试、Go vet 和前端专项检查。本地默认额外检查五家网盘的登录窗口能否打开。CI 使用同一构建脚本，跳过需要交互桌面的登录窗口检查，并打包、核对安装器及上传产物。
 
+## 源码目录
+
+| 目录 | 内容 |
+| --- | --- |
+| [frontend/](frontend) | Vue 界面及 Wails 生成的前端绑定 |
+| [internal/desktop/](internal/desktop) | 桌面启动、窗口、托盘和前端调用的 Go 服务 |
+| [internal/transfer/](internal/transfer) | 网盘协议、账户状态、任务与传输逻辑 |
+| [internal/installation/](internal/installation) | 安装、升级和应用更新 |
+| [build/](build) | 各平台构建配置、图标及系统打包资源 |
+| [scripts/](scripts) | 本地构建、验证和发布入口 |
+| [tools/](tools) | 开发工具及前端回归 |
+| [docs/](docs) | 开发计划、发布和分发文档 |
+
+根目录的 main.go 是 Wails 程序入口，负责嵌入界面和配置，并启动桌面应用。
+
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request。较大改动建议先通过 Issue 对齐范围。

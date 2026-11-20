@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {CopyDestinationLocation,CopyReceipt} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accountId:string;refreshKey?:string;blocked?:boolean}>()
 const emit=defineEmits<{mutation:[active:boolean];open:[accountId:string,location:CopyDestinationLocation]}>()

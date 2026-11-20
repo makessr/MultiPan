@@ -2,7 +2,7 @@
 import {nextTick,onUnmounted,ref} from 'vue'
 import FolderPicker from './FolderPicker.vue'
 import {trapDialogFocus} from './dialogFocus'
-import {CheckConfirmedRestoredFolderMove,MoveConfirmedRestoredFolder} from '../bindings/multipan/desktopservice'
+import {CheckConfirmedRestoredFolderMove,MoveConfirmedRestoredFolder} from '../bindings/multipan/internal/desktop/desktopservice'
 import type {CloudFolder,RestoredFileMoveCheck} from '../bindings/multipan/internal/transfer/models'
 
 const props=defineProps<{

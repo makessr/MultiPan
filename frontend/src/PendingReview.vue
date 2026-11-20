@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {Account,PendingReviewRow} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accounts:Account[];blocked?:boolean;refreshKey?:string}>()
 const emit=defineEmits<{mutation:[active:boolean];open:[kind:string,accountId:string,receiptId:string]}>()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import {shareAccountLabel} from './shareAccounts'
 import type {Account,AccountCheckStatus} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accounts:Account[];blocked?:boolean;refreshKey?:string}>()

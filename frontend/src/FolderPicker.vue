@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {trapDialogFocus} from './dialogFocus'
 import {ref,onMounted,onUnmounted,computed} from 'vue'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {CloudFolder,FolderPage} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accountId:string;accountName:string;initialFolder:string;kind:string;purpose?:'upload'|'move'|'copy'|'source'|'restore';sourceName?:string;sourceNames?:string[];forbiddenRoots?:string[];initialBreadcrumbs?:CloudFolder[];requiredFolderId?:string;excludedFolderIds?:string[];directCopy?:boolean}>()
 function forbidden(id:string){return (props.forbiddenRoots??[]).some(root=>id===root||id.startsWith(root+'/'))}

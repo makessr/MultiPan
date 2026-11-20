@@ -3,7 +3,7 @@ import {ref,watch,computed} from 'vue'
 import {downloadRows,downloadPage,type DownloadSort} from './downloadView'
 import {transferRecovery} from './transferRecovery'
 import {APP_VERSION} from './version'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {DownloadJob,TransferSettings} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{view:'queue'|'settings';jobs:DownloadJob[];settings:TransferSettings}>()
 const emit=defineEmits<{refresh:[];account:[id:string]}>()

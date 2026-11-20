@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,ref,onUnmounted} from 'vue'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 
 const props=defineProps<{operation:string;accountName:string;rows:{name:string;state:string}[];disabled?:boolean}>()
 const copying=ref(false)

@@ -3,7 +3,7 @@ import {nextTick,onUnmounted,ref} from 'vue'
 import FolderPicker from './FolderPicker.vue'
 import BatchOperationReport from './BatchOperationReport.vue'
 import {trapDialogFocus} from './dialogFocus'
-import {CheckConfirmedRestoredFileMove,MoveConfirmedRestoredFile,ValidateRestoredFileMoves} from '../bindings/multipan/desktopservice'
+import {CheckConfirmedRestoredFileMove,MoveConfirmedRestoredFile,ValidateRestoredFileMoves} from '../bindings/multipan/internal/desktop/desktopservice'
 
 const props=defineProps<{
  accountId:string

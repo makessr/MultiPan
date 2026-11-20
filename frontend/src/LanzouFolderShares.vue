@@ -8,7 +8,7 @@ import FolderPicker from './FolderPicker.vue'
 import GlobalSearch from './GlobalSearch.vue'
 import ShareDialog from './ShareDialog.vue'
 import {shareAccountLabel,shareWebsite} from './shareAccounts'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {Account,CloudEntry,CloudFolder,CloudSearchResult,LanzouShareLocation} from '../bindings/multipan/internal/transfer/models'
 
 const props=defineProps<{accounts:Account[];blocked?:boolean;refreshKey?:string;initialLocation?:LanzouShareLocation|null}>()

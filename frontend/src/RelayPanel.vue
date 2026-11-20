@@ -2,7 +2,7 @@
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {trapDialogFocus} from './dialogFocus'
 import {snapshotMaxFile,snapshotMaxBatch} from './relayLimits'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {Account,CloudEntry,FilePage,RelayInput,RelayJob,RelayPreflight} from '../bindings/multipan/internal/transfer/models'
 import FolderPicker from './FolderPicker.vue'
 const props=defineProps<{accounts:Account[];blocked?:boolean;fileCopy?:{inputs:RelayInput[];directory:boolean}|null}>()

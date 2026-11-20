@@ -20,7 +20,7 @@ import {matchUploadFolder,type UploadFolderMatch} from './uploadFolderMatch'
 import FolderPicker from './FolderPicker.vue'
 import CloudFiles from './CloudFiles.vue'
 import AppIcon from './AppIcon.vue'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {Account,AccountInput,File as SourceFile,Task,DownloadJob,TransferSettings,CloudSearchResult,CloudFolder,RelayInput} from '../bindings/multipan/internal/transfer/models'
 const durableDownloads=ref<DownloadJob[]>([]),settings=ref<TransferSettings>({uploadConcurrency:3,downloadConcurrency:1,uploadKiB:0,downloadKiB:0,closeToTray:false})
 const accounts=ref<Account[]>([]),tasks=ref<Task[]>([]),files=ref<SourceFile[]>([]),selected=ref<string[]>([])

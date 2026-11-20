@@ -20,7 +20,7 @@ try {
  const shareAccounts=await fs.readFile(path.join(root,'src/shareAccounts.ts'),'utf8');
  await fs.writeFile(path.join(temp,'shareAccounts.mjs'),ts.transpileModule(shareAccounts,{compilerOptions}).outputText);
  let script=compileScript(parse(await fs.readFile(path.join(root,'src/AccountHealth.vue'),'utf8')).descriptor,{id:'health-check'}).content;
- script=script.replace(/from ['"]vue['"]/g,'from '+JSON.stringify(url('hooks.mjs'))).replace(/from ['"]\.\.\/bindings\/multipan\/desktopservice['"]/g,'from '+JSON.stringify(url('api.mjs'))).replace(/from ['"]\.\/shareAccounts['"]/g,'from '+JSON.stringify(url('shareAccounts.mjs')));
+ script=script.replace(/from ['"]vue['"]/g,'from '+JSON.stringify(url('hooks.mjs'))).replace(/from ['"]\.\.\/bindings\/multipan\/internal\/desktop\/desktopservice['"]/g,'from '+JSON.stringify(url('api.mjs'))).replace(/from ['"]\.\/shareAccounts['"]/g,'from '+JSON.stringify(url('shareAccounts.mjs')));
  script='const setTimeout=()=>0,clearTimeout=()=>{};\n'+script;
  await fs.writeFile(path.join(temp,'component.mjs'),ts.transpileModule(script,{compilerOptions}).outputText);
  const {default:component}=await import(url('component.mjs'));

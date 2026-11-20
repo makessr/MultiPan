@@ -15,7 +15,7 @@ import {trapDialogFocus} from './dialogFocus'
 import {createPageSearch} from './pageSearch'
 import {shareAccountLabel} from './shareAccounts'
 import {spreadsheetCell} from './spreadsheetCell'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {Account,CloudFolder,GuangyaRestorePreview,LanzouRecycleRestorePreview,LanzouRecycleCoverage,LanzouRecycleCoverageRow,RecycleEntry,RecyclePurgeSelection,RecycleRestoreLocation,RecycleRestoreResult} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accounts:Account[];blocked?:boolean;refreshKey?:string;reviewTarget?:{kind:string;accountId:string;receiptId:string}|null}>()
 const emit=defineEmits<{mutation:[active:boolean];'open-location':[location:RecycleRestoreLocation,move:boolean];'folder-moved':[accountId:string]}>()
