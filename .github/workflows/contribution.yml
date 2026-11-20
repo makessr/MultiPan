@@ -1,0 +1,37 @@
+name: 贡献约定
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  readme:
+    name: README 提交检查
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 核对每个开发提交的 README
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          commits=$(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA")
+          failed=0
+          while IFS= read -r commit; do
+            [[ -n "$commit" ]] || continue
+            changed=$(git diff-tree --no-commit-id --name-only -r "$commit" -- README.md)
+            if [[ "$changed" != README.md ]] || ! git cat-file -e "$commit:README.md"; then
+              printf '::error file=README.md::提交 %s 未同步更新 README.md\n' "$commit"
+              failed=1
+            fi
+          done <<< "$commits"
+          exit "$failed"
