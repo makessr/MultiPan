@@ -60,6 +60,8 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 请确认 `wails3` 所在的 Go 工具目录已加入 `PATH`。构建脚本生成图标和 Wails 绑定，运行 Go 测试、Go vet 和前端专项检查。本地默认额外检查五家网盘的登录窗口能否打开。CI 使用同一构建脚本，跳过需要交互桌面的登录窗口检查，并打包、核对安装器及上传产物。
 
+Linux CI 会按架构和 APT 解析出的依赖清单复用 Debian 包缓存。依赖版本变化时自动重新下载。
+
 ## 源码目录
 
 | 目录 | 内容 |

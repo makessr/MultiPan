@@ -45,11 +45,35 @@ jobs:
           node-version: '26'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: 准备 Linux 依赖清单
+        if: runner.os == 'Linux'
+        id: apt-plan
+        shell: bash
+        run: |
+          set -u
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          mkdir -p "$RUNNER_TEMP/multipan-apt"
+          sudo apt-get -y --no-install-recommends --print-uris install \
+            libgtk-4-dev libwebkitgtk-6.0-dev xdg-utils |
+            awk '$1 ~ /^\047https?:/ {print $2, $3, $4}' |
+            LC_ALL=C sort > "$RUNNER_TEMP/multipan-apt/plan"
+          if [[ -s "$RUNNER_TEMP/multipan-apt/plan" ]]; then
+            read -r digest _ < <(sha256sum "$RUNNER_TEMP/multipan-apt/plan")
+            printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          fi
+      - name: 缓存 Linux 依赖包
+        if: runner.os == 'Linux' && steps.apt-plan.outputs.digest != ''
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ runner.temp }}/multipan-apt/*.deb
+          key: multipan-apt-v1-${{ matrix.runner }}-${{ steps.apt-plan.outputs.digest }}
       - name: 安装 Linux 构建依赖
         if: runner.os == 'Linux'
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev apt-utils gnupg
+          sudo apt-get -o "Dir::Cache::Archives=$RUNNER_TEMP/multipan-apt" \
+            -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev xdg-utils
       - name: 安装 Wails CLI
         run: |
           version=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
@@ -71,7 +95,7 @@ jobs:
           test "$(dpkg-deb -f "$package" Package)" = multipan
           test "$(dpkg-deb -f "$package" Architecture)" = "$DEB_ARCH"
           dpkg-deb --contents "$package"
-          sudo apt-get install -y "./$package"
+          sudo apt-get install -y --no-install-recommends "./$package"
           test "$(dpkg-query -W -f='${Architecture}' multipan)" = "$DEB_ARCH"
           case "$DEB_ARCH" in
             amd64) machine='Advanced Micro Devices X86-64' ;;
