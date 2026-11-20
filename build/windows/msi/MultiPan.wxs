@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="MultiPan（所有用户）" Manufacturer="MultiPan" Version="$(AppVersion)"
+           Language="2052" Scope="perMachine" InstallerVersion="500"
+           UpgradeCode="a049ab4b-d0e9-47e1-9378-995384f6a84e">
+    <MajorUpgrade Schedule="afterInstallInitialize" AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="已安装更高版本的 MultiPan。"/>
+    <Property Id="EXISTINGMACHINEFOLDER" Secure="yes">
+      <DirectorySearch Id="ExistingMachineDirectory" Path="[ProgramFiles64Folder]\MultiPan"
+                       Depth="0" AssignToProperty="yes"/>
+    </Property>
+    <Property Id="EXISTINGSTARTLINK" Secure="yes">
+      <DirectorySearch Id="ExistingStartDirectory" Path="[ProgramMenuFolder]" Depth="0">
+        <FileSearch Id="ExistingStartLink" Name="MultiPan（所有用户）.lnk"/>
+      </DirectorySearch>
+    </Property>
+    <Property Id="EXISTINGDESKTOPLINK" Secure="yes">
+      <DirectorySearch Id="ExistingDesktopDirectory" Path="[DesktopFolder]" Depth="0">
+        <FileSearch Id="ExistingDesktopLink" Name="MultiPan（所有用户）.lnk"/>
+      </DirectorySearch>
+    </Property>
+    <Launch Condition="Installed OR WIX_UPGRADE_DETECTED OR NOT (EXISTINGMACHINEFOLDER OR EXISTINGSTARTLINK OR EXISTINGDESKTOPLINK)"
+            Message="已发现同名安装目录或公共快捷方式。请先确认它们的来源，再安装 MultiPan。"/>
+    <MediaTemplate EmbedCab="yes"/>
+    <Icon Id="MultiPanIcon" SourceFile="build/windows/icon.ico"/>
+    <Property Id="ARPPRODUCTICON" Value="MultiPanIcon"/>
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[InstallFolder]" After="CostFinalize" Sequence="execute"/>
+    <Property Id="MSIDISABLERMRESTART" Value="1"/>
+    <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)"/>
+    <ui:WixUI Id="WixUI_FeatureTree"/>
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="InstallFolder" Name="MultiPan">
+        <Component Id="Application">
+          <File Id="ApplicationExe" Source="$(AppExe)" Name="MultiPan.exe" KeyPath="yes"/>
+        </Component>
+        <Component Id="TrialGuide">
+          <File Source="TRIAL-GUIDE.txt" KeyPath="yes"/>
+        </Component>
+        <Component Id="ThirdPartyNotices">
+          <File Source="THIRD_PARTY_NOTICES.md" KeyPath="yes"/>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuLink">
+        <Shortcut Id="MultiPanStart" Name="MultiPan（所有用户）" Target="[#ApplicationExe]"
+                  WorkingDirectory="InstallFolder" Icon="MultiPanIcon"/>
+        <RegistryValue Root="HKLM" Key="Software\MultiPan\MachineInstaller" Name="StartMenu"
+                       Type="integer" Value="1" KeyPath="yes"/>
+      </Component>
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopLink">
+        <Shortcut Id="MultiPanDesktop" Name="MultiPan（所有用户）" Target="[#ApplicationExe]"
+                  WorkingDirectory="InstallFolder" Icon="MultiPanIcon"/>
+        <RegistryValue Root="HKLM" Key="Software\MultiPan\MachineInstaller" Name="Desktop"
+                       Type="integer" Value="1" KeyPath="yes"/>
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Core" Title="MultiPan 和公共开始菜单" Level="1" AllowAbsent="no" AllowAdvertise="no">
+      <ComponentRef Id="Application"/>
+      <ComponentRef Id="TrialGuide"/>
+      <ComponentRef Id="ThirdPartyNotices"/>
+      <ComponentRef Id="StartMenuLink"/>
+    </Feature>
+    <Feature Id="PublicDesktop" Title="公共桌面快捷方式" Level="2" AllowAdvertise="no">
+      <ComponentRef Id="DesktopLink"/>
+    </Feature>
+  </Package>
+</Wix>
