@@ -1,3 +1,5 @@
+//go:build windows
+
 package main
 
 import (
@@ -9,16 +11,12 @@ import (
 	"errors"
 	"multipan/internal/installation"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 )
 
 //go:embed build/update-channel.json
 var updateChannelJSON []byte
-
-//go:embed frontend/src/version.ts
-var updateVersionSource string
 
 type applicationUpdateChannel struct {
 	ReleaseURL   string `json:"releaseURL"`
@@ -38,25 +36,9 @@ type applicationUpdates struct {
 	setupDone   <-chan struct{}
 }
 
-type ApplicationUpdateInfo struct {
-	CurrentVersion string `json:"currentVersion"`
-	Configured     bool   `json:"configured"`
-	Version        string `json:"version,omitempty"`
-	Asset          string `json:"asset,omitempty"`
-	Automatic      bool   `json:"automatic"`
-	LastCheck      string `json:"lastCheck,omitempty"`
-	CheckError     string `json:"checkError,omitempty"`
-}
-
-type ApplicationUpdateDownload struct {
-	Path      string `json:"path,omitempty"`
-	Cancelled bool   `json:"cancelled"`
-}
-
 func readApplicationUpdateChannel() (ApplicationUpdateInfo, string, ed25519.PublicKey) {
-	version, ok := strings.CutPrefix(strings.TrimSpace(updateVersionSource), "export const APP_VERSION='")
-	version, okEnd := strings.CutSuffix(version, "'")
-	if !ok || !okEnd {
+	version := currentAppVersion()
+	if version == "" {
 		return ApplicationUpdateInfo{}, "", nil
 	}
 	info := ApplicationUpdateInfo{CurrentVersion: version}

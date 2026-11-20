@@ -4,21 +4,11 @@ import (
 	"errors"
 	"multipan/internal/transfer"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 
-	"golang.org/x/sys/windows"
+	"path/filepath"
 )
 
 const maxDownloadLocations = 8192
-
-func downloadLocationKey(path string) string {
-	if path == "" || strings.ContainsRune(path, 0) || !filepath.IsAbs(path) || filepath.VolumeName(path) == "" {
-		return ""
-	}
-	return strings.ToLower(filepath.Clean(path))
-}
 
 // Remember only paths produced by our downloader. In particular, an arbitrary
 // bridge argument cannot open a URL, executable, shell command or unknown share.
@@ -74,21 +64,7 @@ func (s *DesktopService) openDownloadFolder(savedPath string, launch func(string
 		return errors.New("保存文件夹不存在或无法访问，可能已被移动或删除")
 	}
 	if e = launch(folder); e != nil {
-		return errors.New("无法打开资源管理器，请稍后重试")
+		return errors.New("无法打开保存目录，请稍后重试")
 	}
-	return nil
-}
-
-func launchDownloadFolder(folder string) error {
-	windowsDirectory, e := windows.GetSystemWindowsDirectory()
-	if e != nil {
-		return e
-	}
-	// No shell and no saved file execution. Explorer receives one directory arg.
-	command := exec.Command(filepath.Join(windowsDirectory, "explorer.exe"), folder)
-	if e = command.Start(); e != nil {
-		return e
-	}
-	_ = command.Process.Release()
 	return nil
 }

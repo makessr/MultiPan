@@ -2,7 +2,7 @@
 
 <img src="assets/branding/multipan-icon.png" alt="MultiPan 图标" width="88">
 
-Windows 多网盘桌面客户端。选择一次本地文件或文件夹，即可上传到多个网盘。文件在本机与网盘间直接传输，无需自建服务器。
+多网盘桌面客户端。选择一次本地文件或文件夹，即可上传到多个网盘。文件在本机与网盘间直接传输，无需自建服务器。
 
 [![Windows 构建](https://github.com/makessr/MultiPan/actions/workflows/windows.yml/badge.svg)](https://github.com/makessr/MultiPan/actions/workflows/windows.yml)
 
@@ -28,6 +28,12 @@ Windows 多网盘桌面客户端。选择一次本地文件或文件夹，即可
 
 Actions 产物为未签名的预览构建。首次使用时，在左侧「我的网盘」添加账号，然后打开「多网盘上传」选择本地文件和目标目录。
 
+### Linux
+
+Ubuntu 24.04 或 Debian 13 桌面提供独立的 amd64 和 arm64 安装包。运行 `dpkg --print-architecture` 确认架构，从 [GitHub Releases](https://github.com/makessr/MultiPan/releases) 或 [Linux 与 macOS 构建](https://github.com/makessr/MultiPan/actions/workflows/desktop-unix.yml) 下载对应的 `.deb`，再运行 `sudo apt install ./安装包文件名.deb`。Linux 通过手动导入登录信息添加账号，WebDAV 沿用用户名和密码。
+
+构建方式、APT 仓库和 macOS 预览包见[桌面版分发文档](docs/DESKTOP-DISTRIBUTION.md)。
+
 ## 开发计划
 
 | 优先级 | 方向 | 接下来要做的事 |
@@ -44,7 +50,7 @@ Actions 产物为未签名的预览构建。首次使用时，在左侧「我的
 
 ## 从源码构建
 
-技术栈为 Go、Wails 3、Vue 和 TypeScript。需要 Windows x64、WebView2、Go 1.26 或更新版本，以及 Node.js 26。
+技术栈为 Go、Wails 3、Vue 和 TypeScript。下面的 Windows 构建需要 Windows x64、WebView2、Go 1.26 或更新版本，以及 Node.js 26。Linux 与 macOS 的构建步骤见[桌面版分发文档](docs/DESKTOP-DISTRIBUTION.md)。
 
 ```powershell
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
@@ -65,7 +71,7 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 ## 本机数据
 
-- 账号和任务状态保存在本机，使用 Windows DPAPI 加密。传输缓存和操作回执也由本机管理。
+- 账号和任务状态保存在本机，在 Windows 使用 DPAPI，在 Linux 使用 Secret Service，在 macOS 使用系统钥匙串保护加密密钥。传输缓存和操作回执也由本机管理。
 - GitHub PR 标题、正文和版本更新记录以中文为主。PR 请写明变更、验证结果和仍需手动验收的场景。
 - 查看[更新记录](CHANGELOG.md)、[第三方许可说明](THIRD_PARTY_NOTICES.md)和[历史记录](docs/HISTORY-0.46-0.62.md)。
 

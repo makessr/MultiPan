@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"golang.org/x/sys/windows"
 )
 
 const relayDiskMargin uint64 = 512 << 20
@@ -57,12 +55,8 @@ func relayCacheSpace(root string, required int64) error {
 		}
 		probe = filepath.Dir(probe)
 	}
-	name, e := windows.UTF16PtrFromString(probe)
+	available, e := availableDiskBytes(probe)
 	if e != nil {
-		return errors.New("本机缓存路径无法识别")
-	}
-	var available, total, free uint64
-	if windows.GetDiskFreeSpaceEx(name, &available, &total, &free) != nil {
 		return errors.New("无法核对本机缓存磁盘空间，未开始传输")
 	}
 	return relaySpaceBudget(available, required)

@@ -217,6 +217,14 @@ export function DeleteAccount(id: string): $CancellablePromise<void> {
     return $Call.ByID(1074221509, id);
 }
 
+/**
+ * DesktopPlatform reports the OS for the account and update controls.
+ * All transfer and storage decisions are still enforced in Go.
+ */
+export function DesktopPlatform(): $CancellablePromise<string> {
+    return $Call.ByID(2381956460);
+}
+
 export function DownloadApplicationUpdate(version: string): $CancellablePromise<$models.ApplicationUpdateDownload> {
     return $Call.ByID(4166124064, version);
 }

@@ -1,0 +1,102 @@
+name: Linux 与 macOS 构建
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            label: Linux amd64
+            artifact: MultiPan-Linux-amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            label: Linux arm64
+            artifact: MultiPan-Linux-arm64
+            arch: arm64
+          - runner: macos-15
+            label: macOS Apple Silicon
+            artifact: MultiPan-macOS-arm64
+          - runner: macos-15-intel
+            label: macOS Intel
+            artifact: MultiPan-macOS-amd64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 安装 Linux 构建依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev apt-utils gnupg
+      - name: 安装 Wails CLI
+        run: |
+          version=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+          GOBIN="$RUNNER_TEMP/wails-cli" go install "github.com/wailsapp/wails/v3/cmd/wails3@$version"
+          printf '%s\n' "$RUNNER_TEMP/wails-cli" >> "$GITHUB_PATH"
+      - name: 构建和检查 Debian 包
+        shell: bash
+        if: runner.os == 'Linux'
+        env:
+          DEB_ARCH: ${{ matrix.arch }}
+        run: |
+          test "$(dpkg --print-architecture)" = "$DEB_ARCH"
+          test "$(go env GOARCH)" = "$DEB_ARCH"
+          wails3 task linux:create:deb APP_NAME=multipan
+          shopt -s nullglob
+          packages=(bin/multipan_*_"$DEB_ARCH".deb)
+          test "${#packages[@]}" = 1
+          package="${packages[0]}"
+          test "$(dpkg-deb -f "$package" Package)" = multipan
+          test "$(dpkg-deb -f "$package" Architecture)" = "$DEB_ARCH"
+          dpkg-deb --contents "$package"
+          sudo apt-get install -y "./$package"
+          test "$(dpkg-query -W -f='${Architecture}' multipan)" = "$DEB_ARCH"
+          case "$DEB_ARCH" in
+            amd64) machine='Advanced Micro Devices X86-64' ;;
+            arm64) machine='AArch64' ;;
+          esac
+          LC_ALL=C readelf -h /usr/bin/multipan | grep -F "$machine"
+          (cd bin && sha256sum "$(basename "$package")" > "$(basename "$package").sha256")
+          go test ./internal/appguard ./internal/transfer -run '^TestUnix' -count=1
+      - name: 构建和检查 macOS 应用包
+        if: runner.os == 'macOS'
+        run: |
+          version=$(sed -n "s/^export const APP_VERSION='\([0-9.]*\)'$/\1/p" frontend/src/version.ts)
+          test -n "$version"
+          plutil -replace CFBundleVersion -string "$version" build/darwin/Info.plist
+          plutil -replace CFBundleShortVersionString -string "$version" build/darwin/Info.plist
+          wails3 task darwin:package APP_NAME=multipan
+          codesign --verify --strict --deep bin/multipan.app
+          go test ./internal/appguard ./internal/transfer -run '^TestUnix' -count=1
+          ditto -c -k --sequesterRsrc --keepParent bin/multipan.app "bin/MultiPan-$version-$(go env GOARCH)-macOS.zip"
+      - name: 上传构建产物
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          path: |
+            bin/*.deb
+            bin/*.deb.sha256
+            bin/*-macOS.zip
