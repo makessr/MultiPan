@@ -1,5 +1,11 @@
 # MultiPan 后续开发计划
 
+## Windows 无证书全用户 MSI（开发预览）
+
+按用户批准的手动提权方式，Windows x64、ARM64 使用独立的 WiX 5 MSI 发行全用户安装。由 Windows Installer 处理 UAC、HKLM 产品登记、程序文件、公共开始菜单、可选公共桌面及卸载事务。首次安装遇到无法归属的同名目录或公共入口时停止。Windows 构建工作流增加双架构 MSI、哈希与数据库检查，当前用户 EXE 仍可单独打包。
+
+本地已构建两种架构的 MSI 并检查数据库、版本、登记范围、快捷方式、升级顺序和摘要。两种架构的 MSI 解包后均核对了客户端 SHA-256。x64 的 Windows Installer 同名冲突夹具已通过。真实 UAC、跨用户启动、维护和卸载待测试虚拟机验收。见[全用户安装验收](DESKTOP-DISTRIBUTION.md#全用户安装验收)。
+
 ## 桌面版安装包（2026-11-20）
 
 - Windows 提供 x64 和 ARM64 独立安装包。Linux 工作流分别原生构建并安装验证 amd64 和 ARM64 Debian 包。

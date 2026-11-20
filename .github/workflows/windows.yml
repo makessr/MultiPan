@@ -72,6 +72,18 @@ jobs:
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
         run: ./scripts/check-installer.ps1 -Installer bin/MultiPan-setup.exe -ApplicationPath bin/multipan.exe
+      - name: 打包并验证全用户 MSI
+        env:
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          $tools = Join-Path $env:RUNNER_TEMP 'multipan-wix'
+          dotnet tool install wix --version 5.0.2 --tool-path $tools
+          if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed' }
+          $wix = Join-Path $tools 'wix.exe'
+          & $wix extension add --global WixToolset.UI.wixext/5.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'WiX UI extension installation failed' }
+          ./scripts/package-installer.ps1 -Machine -WixPath $wix -ApplicationPath bin/multipan.exe -OutputPath bin/MultiPan-all-users.msi
+          ./scripts/check-machine-installer.ps1 -Installer bin/MultiPan-all-users.msi -ApplicationPath bin/multipan.exe -Architecture '${{ matrix.arch }}' -Extract
       - name: 上传便携版与安装包
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -82,6 +94,8 @@ jobs:
             bin/multipan.exe.sha256
             bin/MultiPan-setup.exe
             bin/MultiPan-setup.exe.sha256
+            bin/MultiPan-all-users.msi
+            bin/MultiPan-all-users.msi.sha256
             TRIAL-GUIDE.txt
             LICENSE
             THIRD_PARTY_NOTICES.md

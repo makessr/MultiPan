@@ -23,13 +23,16 @@ func command(name string, args ...string) error {
 func main() {
 	exe := flag.String("exe", "", "application path")
 	out := flag.String("out", "", "separate installer output path")
+	machine := flag.Bool("machine", false, "build an all-users Windows Installer package")
+	wix := flag.String("wix", "wix", "WiX executable or wix.dll path")
+	wixUI := flag.String("wix-ui", "WixToolset.UI.wixext", "WiX UI extension name or DLL path")
 	flag.Parse()
-	if e := build(*exe, *out); e != nil {
+	if e := build(*exe, *out, *machine, *wix, *wixUI); e != nil {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
 	}
 }
-func build(exe, out string) error {
+func build(exe, out string, machine bool, wix, wixUI string) error {
 	source, e := os.ReadFile("frontend/src/version.ts")
 	if e != nil {
 		return e
@@ -60,6 +63,9 @@ func build(exe, out string) error {
 		return e
 	}
 	platform := installation.InstallerPlatform(arch)
+	if machine {
+		return buildMachineMSI(exe, out, v, platform, wix, wixUI)
+	}
 	explicitOutput := out != ""
 	if !explicitOutput {
 		out = filepath.Join("releases", "MultiPan-"+v+"-"+platform+"-setup.exe")

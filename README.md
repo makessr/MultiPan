@@ -20,11 +20,11 @@
 
 ## 下载与安装
 
-支持 Windows 10/11 x64，需要 Microsoft Edge WebView2 Runtime。
+支持 Windows 10/11 x64 和 Windows 11 ARM64，需要 Microsoft Edge WebView2 Runtime。
 
 1. 打开 [Windows 构建](https://github.com/makessr/MultiPan/actions/workflows/windows.yml)，选择 `main` 分支最近一次通过的构建。
-2. 登录 GitHub 后，在该次运行的产物区下载 `MultiPan-Windows-x64` 并解压。
-3. 运行 `multipan.exe` 直接试用，或用 `MultiPan-setup.exe` 安装到当前用户。压缩包内附 SHA-256 摘要和[试用指南](TRIAL-GUIDE.txt)。
+2. 登录 GitHub 后，在该次运行的产物区下载对应架构的 `MultiPan-Windows-x64` 或 `MultiPan-Windows-arm64` 并解压。
+3. 运行 `multipan.exe` 直接试用，用 `MultiPan-setup.exe` 安装到当前用户，或用 `MultiPan-all-users.msi` 安装到所有用户。全用户安装需要确认 UAC。压缩包内附 SHA-256 摘要和[试用指南](TRIAL-GUIDE.txt)。
 
 Actions 产物为未签名的预览构建。首次使用时，在左侧「我的网盘」添加账号，然后打开「多网盘上传」选择本地文件和目标目录。
 
@@ -44,7 +44,7 @@ Ubuntu 24.04 或 Debian 13 桌面提供独立的 amd64 和 arm64 安装包。运
 | 待推进 | 跨网盘复制与搬运 | 扩大夸克和光鸭来源范围，逐步接入更多来源的单文件搬运和目录搬运。 |
 | 待推进 | 登录自动续期 | 核对各网盘的续期依据。123 已有实验性续期和只读恢复，待真实账号验收。 |
 | 待推进 | 诚通公开分享 | 核对 WebDAV 账号与公开分享所需独立登录会话之间的授权方式。 |
-| 待推进 | 正式发布 | 配置可信更新源、发布公钥和 Windows 签名，完善系统级安装。 |
+| 待推进 | 正式发布 | 系统级 MSI 已接入双架构预览构建，真实 UAC、跨用户启动和卸载待实机验收。无证书预览通过手动下载和升级。 |
 
 完整范围、进展和验收记录见[开发计划](docs/DEVELOPMENT-PLAN.md)。按账号进行的真实网盘操作仍需手动验收。
 
