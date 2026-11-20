@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,onUnmounted,ref,watch} from 'vue'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {Account,CloudSearchStatus,CloudSearchResult} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accounts:Account[];initialAccountId?:string;fixedAccountId?:string;refreshKey?:string;blocked?:boolean;listLanzouCandidates?:boolean}>()
 const emit=defineEmits<{open:[row:CloudSearchResult]}>()

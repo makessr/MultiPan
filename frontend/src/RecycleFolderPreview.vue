@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {trapDialogFocus} from './dialogFocus'
-import {ListLanzouRecycleFolder} from '../bindings/multipan/desktopservice'
+import {ListLanzouRecycleFolder} from '../bindings/multipan/internal/desktop/desktopservice'
 import type {LanzouRecycleFolderComparison} from '../bindings/multipan/internal/transfer/models'
 
 const props=defineProps<{accountId:string;accountName:string;entryId:string;name:string}>()

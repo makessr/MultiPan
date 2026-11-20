@@ -17,7 +17,7 @@ try{
  export async function CopyDownloadReport(text){calls.copies.push(text);if(control.failCopy)throw Error('Clipboard unavailable')}
  export async function PurgeCloudRecycle(handle,confirmation){calls.writes.push({handle,confirmation});if(control.holdWrite)await control.holdWrite;if(control.throwWrite)throw Error('connection lost');if(control.nullWrite)return null;return {state:control.state??'confirmed',message:'checked'}}`);
  let script=compileScript(parse(await fs.readFile(path.join(root,'src/RecycleEmptyDialog.vue'),'utf8')).descriptor,{id:'empty-check'}).content;
- script=script.replace(/from ['"]vue['"]/g,'from '+JSON.stringify(url('hooks.mjs'))).replace(/from ['"]\.\.\/bindings\/multipan\/desktopservice['"]/g,'from '+JSON.stringify(url('api.mjs'))).replace(/import \{trapDialogFocus\} from ['"].*?['"]/,'const trapDialogFocus=()=>{}');
+ script=script.replace(/from ['"]vue['"]/g,'from '+JSON.stringify(url('hooks.mjs'))).replace(/from ['"]\.\.\/bindings\/multipan\/internal\/desktop\/desktopservice['"]/g,'from '+JSON.stringify(url('api.mjs'))).replace(/import \{trapDialogFocus\} from ['"].*?['"]/,'const trapDialogFocus=()=>{}');
  script=script.replace(/import BatchOperationReport from ['"].*?['"]/,'const BatchOperationReport={}');
  const cellSource=await fs.readFile(path.join(root,'src/spreadsheetCell.ts'),'utf8');
  await fs.writeFile(path.join(temp,'spreadsheetCell.mjs'),ts.transpileModule(cellSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);

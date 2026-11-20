@@ -10,7 +10,7 @@ import {managedShareText} from './shareText'
 import {shareAccountLabel,shareWebsite} from './shareAccounts'
 import {spreadsheetCell} from './spreadsheetCell'
 import {trapDialogFocus} from './dialogFocus'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {Account,ManagedShare,ManagedShareLink,QuarkShareRestrictions,ShareRevocationResult} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accounts:Account[];blocked?:boolean;refreshKey?:string;reviewTarget?:{accountId:string;receiptId:string}|null}>()
 const emit=defineEmits<{mutation:[active:boolean]}>()

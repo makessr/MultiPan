@@ -2,7 +2,7 @@
 import {computed,onUnmounted,ref} from 'vue'
 import BatchOperationReport from './BatchOperationReport.vue'
 import {trapDialogFocus} from './dialogFocus'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {TrashInput} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{inputs:TrashInput[];accountName:string;location:string;browserRestore?:boolean}>()
 const emit=defineEmits<{close:[];changed:[]}>()

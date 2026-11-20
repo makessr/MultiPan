@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {onMounted,onUnmounted,ref} from 'vue'
 import {Events} from '@wailsio/runtime'
-import * as api from '../bindings/multipan/desktopservice'
-import type {ApplicationUpdateInfo} from '../bindings/multipan/models'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
+import type {ApplicationUpdateInfo} from '../bindings/multipan/internal/desktop/models'
 
 const props=defineProps<{blocked?:boolean}>()
 const info=ref<ApplicationUpdateInfo|null>(null)

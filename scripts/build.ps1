@@ -69,7 +69,7 @@ if ($SkipDesktopSmoke) {
   $env:MULTIPAN_RELEASE_EXE=(Resolve-Path (Join-Path 'bin' ($AppName+'.exe'))).Path
   foreach($provider in @('lanzou','quark','pan123','baidu','guangya')) {
    $env:MULTIPAN_RELEASE_PROVIDER=$provider
-   go test . -run TestPackagedLoginWindowStartup -count=1
+   go test ./internal/desktop -run TestPackagedLoginWindowStartup -count=1
    if($LASTEXITCODE -ne 0){throw "Packaged $provider login window startup test failed"}
   }
  } finally {

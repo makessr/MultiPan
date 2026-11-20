@@ -2,7 +2,7 @@
 import {computed,onMounted,onUnmounted,ref} from 'vue'
 import BatchOperationReport from './BatchOperationReport.vue'
 import {trapDialogFocus} from './dialogFocus'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {ManagedShare,ShareRevocationResult} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accountName:string;targets:ManagedShare[];blocked?:boolean;preflight?:boolean;paid?:boolean}>()
 const emit=defineEmits<{close:[started:boolean];result:[handle:string,result:ShareRevocationResult]}>()

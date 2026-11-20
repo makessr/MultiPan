@@ -2,7 +2,7 @@
 import {computed,nextTick,onMounted,onUnmounted,ref} from 'vue'
 import BatchOperationReport from './BatchOperationReport.vue'
 import {trapDialogFocus} from './dialogFocus'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {RecycleEntry,RecyclePurgePrepared,RecyclePurgeSelection} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accountId:string;accountName:string;page:number;entries:RecycleEntry[];selections?:RecyclePurgeSelection[];guangya?:boolean;lanzou?:boolean;autoPreview?:boolean}>()
 const emit=defineEmits<{close:[];changed:[]}>()

@@ -3,7 +3,7 @@ import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import BatchOperationReport from './BatchOperationReport.vue'
 import {trapDialogFocus} from './dialogFocus'
 import {spreadsheetCell} from './spreadsheetCell'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {RecycleEmptyPreview} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accountId:string;accountName:string;serverClear?:boolean}>()
 const emit=defineEmits<{close:[];changed:[]}>()

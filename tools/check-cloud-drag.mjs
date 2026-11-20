@@ -16,7 +16,7 @@ const {reactive,nextTick}=await import(vueURL);
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'multipan-cloud-drag-'));
 const fileURL=name=>pathToFileURL(path.join(dir,name)).href;
 await fs.writeFile(path.join(dir,'version.mjs'),await fs.readFile(path.join(root,'src/version.ts'),'utf8'));
-const flowCode=ts.transpileModule(await fs.readFile(path.join(root,'src/useUploadReview.ts'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText.replace(/from ['"]vue['"]/g,()=> 'from '+JSON.stringify(vueURL)).replace(/from ['"]\.\.\/bindings\/multipan\/desktopservice['"]/g,()=> 'from '+JSON.stringify(fileURL('api.mjs')));
+const flowCode=ts.transpileModule(await fs.readFile(path.join(root,'src/useUploadReview.ts'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText.replace(/from ['"]vue['"]/g,()=> 'from '+JSON.stringify(vueURL)).replace(/from ['"]\.\.\/bindings\/multipan\/internal\/desktop\/desktopservice['"]/g,()=> 'from '+JSON.stringify(fileURL('api.mjs')));
 await fs.writeFile(path.join(dir,'useUploadReview.mjs'),flowCode);
 await fs.writeFile(path.join(dir,'uploadTasks.mjs'),ts.transpileModule(await fs.readFile(path.join(root,'src/uploadTasks.ts'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);
 await fs.writeFile(path.join(dir,'uploadFolderMatch.mjs'),ts.transpileModule(await fs.readFile(path.join(root,'src/uploadFolderMatch.ts'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);
@@ -164,7 +164,7 @@ async function loadComponent(name){
  let script=compileScript(parse(source).descriptor,{id:'cloud-drag-check'}).content;
  script=script.replace(/from ['"]vue['"]/g,`from ${JSON.stringify(fileURL('hooks.mjs'))}`)
   .replace(/from ['"]@wailsio\/runtime['"]/g,`from ${JSON.stringify(fileURL('events.mjs'))}`)
-  .replace(/from ['"]\.\.\/bindings\/multipan\/desktopservice['"]/g,`from ${JSON.stringify(fileURL('api.mjs'))}`)
+  .replace(/from ['"]\.\.\/bindings\/multipan\/internal\/desktop\/desktopservice['"]/g,`from ${JSON.stringify(fileURL('api.mjs'))}`)
   .replace(/from ['"]\.\/version['"]/g,`from ${JSON.stringify(fileURL("version.mjs"))}`)
   .replace(/from ['"]\.\/relayLimits['"]/g,`from ${JSON.stringify(pathToFileURL(path.join(root,'src/relayLimits.ts')).href)}`)
   .replace(/from ['"]\.\/downloadMeter['"]/g,`from ${JSON.stringify(fileURL("downloadMeter.mjs"))}`)

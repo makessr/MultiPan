@@ -2,7 +2,7 @@
 import {ref,computed,onMounted,nextTick} from 'vue'
 import {trapDialogFocus} from './dialogFocus'
 import {shareText,shareLink,newShareCode} from './shareText'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {CloudEntry,ShareResult} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accountId:string;parentId:string;kind:string;entry:CloudEntry;editPassword?:boolean;accountName?:string;sourcePath?:string}>()
 const emit=defineEmits<{close:[]}>()

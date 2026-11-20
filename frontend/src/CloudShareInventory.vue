@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
-import {CopyDownloadReport} from '../bindings/multipan/desktopservice'
+import {CopyDownloadReport} from '../bindings/multipan/internal/desktop/desktopservice'
 import type {ManagedShare,ManagedSharePage} from '../bindings/multipan/internal/transfer/models'
 import {createPageSearch} from './pageSearch'
 import {spreadsheetCell} from './spreadsheetCell'

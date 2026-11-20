@@ -3,7 +3,7 @@ import {ref,computed,onMounted,nextTick} from 'vue'
 import {trapDialogFocus} from './dialogFocus'
 import {shareLink,shareText} from './shareText'
 import {pan123PermissionOptions as permissionOptions,pan123TrafficLimit} from './pan123ShareTraffic'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {ManagedShareLink,ShareResult} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{handle:string;name:string;kind?:string;accountName?:string;activate?:boolean;originalExpiry?:string;paid?:boolean}>()
 const emit=defineEmits<{close:[attempted:boolean]}>()

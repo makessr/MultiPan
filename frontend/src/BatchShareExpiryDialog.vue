@@ -3,7 +3,7 @@ import {computed,onMounted,onUnmounted,ref} from 'vue'
 import BatchOperationReport from './BatchOperationReport.vue'
 import {trapDialogFocus} from './dialogFocus'
 import {pan123PermissionOptions,pan123TrafficLimit} from './pan123ShareTraffic'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {ManagedShare,ManagedShareLink,ShareResult} from '../bindings/multipan/internal/transfer/models'
 type Target=Pick<ManagedShare,'id'|'name'|'canEdit'|'canActivate'|'canLimitTraffic123'>&{expiry?:string;sourcePath?:string}
 type OriginalAccess=Pick<ManagedShareLink,'url'|'password'>

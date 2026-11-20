@@ -1,5 +1,5 @@
 import {ref} from 'vue'
-import * as api from '../bindings/multipan/desktopservice'
+import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {File as SourceFile,Target,UploadReview,UploadSkip} from '../bindings/multipan/internal/transfer/models'
 
 // Both upload entry points share the same captured plan and cancellation rules.
