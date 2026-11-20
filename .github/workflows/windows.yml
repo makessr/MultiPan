@@ -68,6 +68,9 @@ jobs:
           "$hash  multipan.exe" | Set-Content -LiteralPath bin/multipan.exe.sha256 -Encoding ascii
       - name: 验证 ARM64 安装与卸载
         if: matrix.arch == 'arm64'
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: ./scripts/check-installer.ps1 -Installer bin/MultiPan-setup.exe -ApplicationPath bin/multipan.exe
       - name: 上传便携版与安装包
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
