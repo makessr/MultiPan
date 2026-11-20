@@ -59,3 +59,7 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 - 账号和任务状态保存在本机，使用 Windows DPAPI 加密。传输缓存和操作回执也由本机管理。
 - GitHub PR 标题、正文和版本更新记录以中文为主。PR 请写明变更、验证结果和仍需手动验收的场景。
 - 查看[更新记录](CHANGELOG.md)、[第三方许可说明](THIRD_PARTY_NOTICES.md)和[历史记录](docs/HISTORY-0.46-0.62.md)。
+
+## 许可证
+
+MultiPan 项目源码按 [Apache-2.0](LICENSE) 发布。第三方组件继续适用各自的许可证，见[第三方许可说明](THIRD_PARTY_NOTICES.md)。

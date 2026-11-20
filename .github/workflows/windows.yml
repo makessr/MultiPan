@@ -65,4 +65,5 @@ jobs:
             bin/MultiPan-setup.exe
             bin/MultiPan-setup.exe.sha256
             TRIAL-GUIDE.txt
+            LICENSE
             THIRD_PARTY_NOTICES.md
