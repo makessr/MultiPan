@@ -30,7 +30,7 @@ func CreateAccountFolder(ctx context.Context, client *http.Client, a Account, pa
 		return CreateLanzouFolder(ctx, client, a, parent, name)
 	}
 	switch a.Kind {
-	case "quark", "pan123", "baidu", "guangya", "ctdav", "webdav":
+	case "quark", "pan123", "baidu", "guangya", "ctdav", "webdav", "ctweb":
 	default:
 		return CloudFolder{}, errors.New("此网盘暂不支持新建文件夹")
 	}
@@ -73,6 +73,8 @@ func CreateAccountFolder(ctx context.Context, client *http.Client, a Account, pa
 		}
 		target := path.Join(parent, name)
 		e = c.api(ctx, "POST", "create", url.Values{"a": {"commit"}}, url.Values{"path": {target}, "isdir": {"1"}, "size": {"0"}, "block_list": {"[]"}, "rtype": {"0"}}, nil)
+	case "ctweb":
+		_, e = ctWebMkdir(ctx, client, a, parent, name)
 	case "ctdav", "webdav":
 		base, parseErr := url.Parse(a.Endpoint)
 		if parseErr != nil {

@@ -4,7 +4,7 @@ import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {Account,CloudSearchStatus,CloudSearchResult} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accounts:Account[];initialAccountId?:string;fixedAccountId?:string;refreshKey?:string;blocked?:boolean;listLanzouCandidates?:boolean}>()
 const emit=defineEmits<{open:[row:CloudSearchResult]}>()
-const accounts=computed(()=>props.accounts.filter(a=>(!props.fixedAccountId||a.id===props.fixedAccountId)&&['lanzou','quark','pan123','baidu','guangya','ctdav','webdav','ctfile'].includes(a.kind)))
+const accounts=computed(()=>props.accounts.filter(a=>(!props.fixedAccountId||a.id===props.fixedAccountId)&&['lanzou','quark','pan123','baidu','guangya','ctdav','webdav','ctfile','ctweb'].includes(a.kind)))
 const accountId=ref(props.fixedAccountId||props.initialAccountId||accounts.value[0]?.id||''),query=ref(''),includePath=ref(false),busy=ref(false),stopping=ref(false),error=ref(''),status=ref<CloudSearchStatus|null>(null),page=ref(1),kind=ref('all')
 const rows=computed(()=>(status.value?.items??[]).filter(r=>kind.value==='all'||(kind.value==='folders')===r.entry.folder))
 const visible=computed(()=>rows.value.slice((page.value-1)*50,page.value*50))

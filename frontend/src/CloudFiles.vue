@@ -24,9 +24,9 @@ import type {Account,CloudFolder,CloudEntry,FilePage,BatchDownloadItem,BatchDown
 const props=defineProps<{accounts:Account[];accountId:string;blocked?:boolean;view?:'files'|'downloads';refreshKey?:number;locationRequest?:{accountId:string;id:string;breadcrumbs?:CloudFolder[];nonce:number;moveFile?:RestoredFileForMove;shareSource?:ShareSourceLocation;recreateShare?:boolean}|null}>()
 const emit=defineEmits<{account:[id:string];saved:[id:string,folder:string,path:string];renamed:[id:string];queued:[];add:[];edit:[id:string,relogin:boolean];mutation:[active:boolean];downloads:[];uploads:[];viewFiles:[];shareReceipt:[kind:'share',accountId:string,receiptId:string];downloadStatus:[active:boolean,count:number];relayCopy:[inputs:RelayInput[],directory:boolean]}>()
 function editCurrentAccount(relogin=false){if(!canNavigate.value||!account.value)return;closeContext();clearDrag();emit('edit',account.value.id,relogin&&canWebLogin.value)}
-const canWebLogin=computed(()=>['lanzou','quark','pan123','baidu','guangya'].includes(account.value?.kind??''))
+const canWebLogin=computed(()=>['lanzou','quark','pan123','baidu','guangya','ctweb'].includes(account.value?.kind??''))
 const account=computed(()=>props.accounts.find(a=>a.id===props.accountId)??props.accounts[0])
-function cloudName(kind:string){return ({lanzou:'蓝奏云',quark:'夸克网盘',pan123:'123 云盘',baidu:'百度网盘',ctdav:'诚通网盘',ctfile:'诚通 OpenAPI',guangya:'光鸭云盘',webdav:'WebDAV'} as Record<string,string>)[kind]??kind}
+function cloudName(kind:string){return ({lanzou:'蓝奏云',quark:'夸克网盘',pan123:'123 云盘',baidu:'百度网盘',ctdav:'诚通网盘',ctfile:'诚通 OpenAPI',ctweb:'诚通网盘（网页版）',guangya:'光鸭云盘',webdav:'WebDAV'} as Record<string,string>)[kind]??kind}
 const canShare=computed(()=>['lanzou','quark','pan123','baidu','guangya'].includes(account.value?.kind??''))
 const shareTarget=ref<{accountId:string;parentId:string;kind:string;entry:CloudEntry;group?:CloudEntry[];recreation?:ShareRecreation}|null>(null)
 function openShare(entry:CloudEntry,recreation?:ShareRecreation,group?:CloudEntry[]){
@@ -55,7 +55,7 @@ async function openSavedFolder(path:string){if(saving.value||locationBusy.value|
 async function copySavedPath(path:string){if(saving.value||locationBusy.value||!path)return;locationBusy.value=true;locationStatus.value='';locationError.value='';try{await api.CopyDownloadReport(path);locationStatus.value='路径已复制'}catch(e){locationError.value=message(e)}finally{locationBusy.value=false}}
 const canDownloadFolders=computed(()=>['ctdav','webdav','quark','pan123','baidu','guangya','lanzou'].includes(account.value?.kind??''))
 const canDownload=computed(()=>['ctdav','webdav','pan123','guangya','quark','baidu','lanzou'].includes(account.value?.kind??''))
-const root=computed(()=>account.value?.kind==='lanzou'?'-1':['quark','pan123'].includes(account.value?.kind??'')?'0':account.value?.kind==='guangya'?'root':account.value?.kind==='ctfile'?'d0':'/')
+const root=computed(()=>account.value?.kind==='lanzou'?'-1':['quark','pan123'].includes(account.value?.kind??'')?'0':account.value?.kind==='guangya'?'root':['ctfile','ctweb'].includes(account.value?.kind??'')?'d0':'/')
 const browseHistory=new BrowseHistory(),navigationVersion=ref(0)
 function accountSource(a:Account){return JSON.stringify([a.id,a.kind,a.endpoint??'',a.username??''])}
 const accountScope=computed(()=>account.value?accountSource(account.value):'')

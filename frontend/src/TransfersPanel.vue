@@ -23,7 +23,7 @@ function selectJobs(checked:boolean){if(busy.value)return;selection.value=checke
 async function batch(actionName:string){if(!chosen.value.length||busy.value)return;const ids=chosen.value.map(j=>j.id);await action(async()=>{batchResults.value=await api.BatchQueuedDownloads(ids,actionName)??[];selection.value=[]})}
 const form=ref({uploadConcurrency:3,downloadConcurrency:1,uploadKiB:0,downloadKiB:0,closeToTray:false})
 watch(()=>props.settings,value=>{if(value&&!dirty.value)form.value={...value}},{immediate:true})
-function cloudName(kind:string){return ({lanzou:'蓝奏云',quark:'夸克网盘',pan123:'123 云盘',baidu:'百度网盘',guangya:'光鸭云盘',ctdav:'诚通网盘',webdav:'WebDAV'} as Record<string,string>)[kind]??kind}
+function cloudName(kind:string){return ({lanzou:'蓝奏云',quark:'夸克网盘',pan123:'123 云盘',baidu:'百度网盘',guangya:'光鸭云盘',ctdav:'诚通网盘',ctweb:'诚通网盘（网页版）',webdav:'WebDAV'} as Record<string,string>)[kind]??kind}
 watch(()=>props.view,()=>{message.value='';selection.value=[]})
 const labels:Record<string,string>={queued:'等待中',running:'下载中',paused:'已暂停',failed:'失败',saved:'已保存'}
 const rows=computed(()=>downloadRows(props.jobs,status.value,queueKind.value,query.value,queueSort.value))

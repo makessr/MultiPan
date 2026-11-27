@@ -121,6 +121,9 @@ func (u *HTTPUploader) uploadOpened(ctx context.Context, a Account, f File, fold
 	if a.Kind == "ctfile" {
 		return u.ctfile(ctx, a, f, folder, file, progress)
 	}
+	if a.Kind == "ctweb" {
+		return u.ctweb(ctx, a, f, folder, file, progress)
+	}
 	if a.Kind == "guangya" {
 		return u.guangya(ctx, a, f, folder, file, progress)
 	}

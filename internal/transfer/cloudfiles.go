@@ -35,7 +35,7 @@ func cloudRoot(kind string) string {
 		return "-1"
 	case "quark", "pan123":
 		return "0"
-	case "ctfile":
+	case "ctfile", "ctweb":
 		return "d0"
 	case "guangya":
 		return "root"
@@ -137,6 +137,12 @@ func ListAccountFiles(ctx context.Context, client *http.Client, a Account, paren
 		}
 	case "ctdav", "webdav":
 		return ListDAVFiles(ctx, client, a, parent)
+	case "ctweb":
+		folders, e := newCtWebClient(client, a).list(ctx, parent)
+		if e != nil {
+			return p, e
+		}
+		p.Entries = folders.Entries
 	case "ctfile":
 		c := ctClient{client, a}
 		folders, e := c.folders(ctx, parent)

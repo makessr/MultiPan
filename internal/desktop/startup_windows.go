@@ -47,7 +47,7 @@ func Run(resources Resources) {
 		runWorkspace(resources, filepath.Join(profile, "state.enc"), func(selection transfer.DropSelection) { _ = json.NewEncoder(os.Stdout).Encode(selection) })
 		return
 	}
-	if len(os.Args) == 3 && (os.Args[1] == "--lanzou-login" || os.Args[1] == "--quark-login" || os.Args[1] == "--pan123-login" || os.Args[1] == "--baidu-login" || os.Args[1] == "--guangya-login") {
+	if len(os.Args) == 3 && (os.Args[1] == "--lanzou-login" || os.Args[1] == "--quark-login" || os.Args[1] == "--pan123-login" || os.Args[1] == "--baidu-login" || os.Args[1] == "--guangya-login" || os.Args[1] == "--ctweb-login") {
 		if err := containLoginProcessTree(); err != nil {
 			lanzoulogin.WriteResult(os.Stdout, lanzoulogin.Result{Error: "无法创建登录窗口进程组"})
 			os.Exit(2)
@@ -64,6 +64,9 @@ func Run(resources Resources) {
 		}
 		if os.Args[1] == "--pan123-login" {
 			runner = lanzoulogin.Run123
+		}
+		if os.Args[1] == "--ctweb-login" {
+			runner = lanzoulogin.RunCtfile
 		}
 		result, err := runner(os.Args[2], func(closeWindow func(), state lanzoulogin.Result) {
 			lanzoulogin.WriteResult(os.Stdout, state)

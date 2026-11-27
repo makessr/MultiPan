@@ -317,6 +317,10 @@ export function LoginCtFile($in: transfer$0.CtLoginInput): $CancellablePromise<t
     return $Call.ByID(872702843, $in);
 }
 
+export function LoginCtWeb(id: string, name: string, folder: string): $CancellablePromise<transfer$0.Account> {
+    return $Call.ByID(1568254585, id, name, folder);
+}
+
 export function LoginGuangya(id: string, name: string, folder: string): $CancellablePromise<transfer$0.Account> {
     return $Call.ByID(1980461968, id, name, folder);
 }

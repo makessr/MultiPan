@@ -77,6 +77,8 @@ func checkAccountRead(ctx context.Context, client *http.Client, a Account) error
 		return VerifyGuangyaSession(ctx, client, a)
 	case "ctfile":
 		return VerifyCtSession(ctx, client, a)
+	case "ctweb":
+		return CheckCtWebSession(ctx, client, a)
 	case "ctdav", "webdav":
 		// A configured DAV collection may be the only permitted root.
 		_, e := ListDAVFolders(ctx, client, a, a.Folder)

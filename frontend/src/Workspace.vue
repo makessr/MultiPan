@@ -56,10 +56,10 @@ const folderMatches=ref<Record<string,UploadFolderMatch>>({}),folderMatchStatus=
 const folderMatchLabels={searching:'正在查找目录…',missing:'未找到相近目录',error:'目录读取失败，可手动选择'}
 let folderMatchRun=0
 function clearFolderMatches(){folderMatchRun++;folderMatches.value={};folderMatchStatus.value=''}
-function isCloud(kind:string){return ['lanzou','quark','pan123','baidu','ctfile','ctdav','guangya'].includes(kind)}
-function cloudName(kind:string){return ({lanzou:'蓝奏云',quark:'夸克网盘',pan123:'123 云盘',baidu:'百度网盘',guangya:'光鸭云盘',ctfile:'诚通 OpenAPI',ctdav:'诚通网盘',webdav:'WebDAV'} as Record<string,string>)[kind]??kind}
-function cloudMark(kind:string){return kind==='guangya'?'光':['ctfile','ctdav'].includes(kind)?'诚':kind==='baidu'?'百':kind==='pan123'?'123':kind==='quark'?'夸':kind==='lanzou'?'蓝':'W'}
-function rootFolder(kind:string){return kind==='guangya'?'root':kind==='ctfile'?'d0':['quark','pan123'].includes(kind)?'0':kind==='lanzou'?'-1':'/'}
+function isCloud(kind:string){return ['lanzou','quark','pan123','baidu','ctfile','ctdav','ctweb','guangya'].includes(kind)}
+function cloudName(kind:string){return ({lanzou:'蓝奏云',quark:'夸克网盘',pan123:'123 云盘',baidu:'百度网盘',guangya:'光鸭云盘',ctfile:'诚通 OpenAPI',ctdav:'诚通网盘',ctweb:'诚通网盘（网页版）',webdav:'WebDAV'} as Record<string,string>)[kind]??kind}
+function cloudMark(kind:string){return kind==='guangya'?'光':['ctfile','ctdav','ctweb'].includes(kind)?'诚':kind==='baidu'?'百':kind==='pan123'?'123':kind==='quark'?'夸':kind==='lanzou'?'蓝':'W'}
+function rootFolder(kind:string){return kind==='guangya'?'root':['ctfile','ctweb'].includes(kind)?'d0':['quark','pan123'].includes(kind)?'0':kind==='lanzou'?'-1':'/'}
 function folderName(a:Account){return folderPaths.value[a.id]||a.folderDisplay||(a.folder===rootFolder(a.kind)?'根目录':`目录 ${a.folder}`)}
 function browse(a:Account,purpose:'upload'|'default'='upload'){folderPurpose.value=purpose;folderAccount.value=a}
 function validUploadTrail(a:Account,id:string,trail:CloudFolder[]){
@@ -223,7 +223,7 @@ async function saveAccount(){
  try{
   let a:Account
   if(['ctfile','ctdav'].includes(form.value.kind)){a=await api.SaveAccount({...form.value})}
-  else if(isCloud(form.value.kind)&&loginMode.value){a=await ({quark:api.LoginQuark,pan123:api.Login123,baidu:api.LoginBaidu,guangya:api.LoginGuangya,lanzou:api.LoginLanzou}[form.value.kind as 'quark'|'pan123'|'baidu'|'guangya'|'lanzou'])(form.value.id,form.value.name,form.value.folder)}
+  else if(isCloud(form.value.kind)&&loginMode.value){a=await ({quark:api.LoginQuark,pan123:api.Login123,baidu:api.LoginBaidu,guangya:api.LoginGuangya,ctweb:api.LoginCtWeb,lanzou:api.LoginLanzou}[form.value.kind as 'quark'|'pan123'|'baidu'|'guangya'|'ctweb'|'lanzou'])(form.value.id,form.value.name,form.value.folder)}
   else {a=await api.SaveAccount({...form.value})}
   folders.value[a.id]=a.folder;folderPaths.value[a.id]=a.folderDisplay||'根目录';closeModal();await refresh();accountRefresh.value[a.id]=(accountRefresh.value[a.id]??0)+1;notice.value='账号已保存到本机'
  }catch(e){error.value=msg(e)}finally{saving.value=false;ctAuth.value.password='';ctAuth.value.code=''}
@@ -236,7 +236,7 @@ async function openTaskFolder(t:Task){if(openingUploadFolder.value)return;openin
 const copyingTask=ref(''),taskCopyStatus=ref('')
 async function copyTaskResult(t:Task){if(copyingTask.value)return;copyingTask.value=t.id;taskCopyStatus.value='';try{await api.CopyDownloadReport(uploadTaskReport(t,APP_VERSION,cloudName(t.kind),labels[t.status]??t.status));taskCopyStatus.value='已复制「'+t.file.name+'」的任务结果；发送前请检查文件名、目录和错误说明。'}catch(e){taskCopyStatus.value=msg(e)}finally{copyingTask.value=''}}
 async function control(t:Task){if(taskControlling.value)return;try{if(['queued','running'].includes(t.status))await api.Stop(t.id);else await api.Retry(t.id);await refresh()}catch(e){error.value=msg(e)}}
-function editAccount(id:string,relogin=false){if(cloudMoving.value)return;const a=accounts.value.find(a=>a.id===id);if(!a){error.value='账号不存在，请添加账号后重新创建任务';return}openAccount(a);loginMode.value=supportsBrowserLogin.value&&relogin&&['lanzou','quark','pan123','baidu','guangya'].includes(a.kind)}
+function editAccount(id:string,relogin=false){if(cloudMoving.value)return;const a=accounts.value.find(a=>a.id===id);if(!a){error.value='账号不存在，请添加账号后重新创建任务';return}openAccount(a);loginMode.value=supportsBrowserLogin.value&&relogin&&['lanzou','quark','pan123','baidu','guangya','ctweb'].includes(a.kind)}
 function recoverAccount(id:string){editAccount(id,true)}
 const pendingReceipt=ref<{tab:string;kind:string;accountId:string;receiptId:string}|null>(null)
 function openPendingModule(kind:string,accountId:string,receiptId:string){
@@ -340,7 +340,7 @@ function navigationDisabled(page:string){
  <details class="operation-details"><summary>退出与续传</summary><p>关闭到托盘可继续传输，退出会暂停任务。夸克、123、光鸭尝试恢复已确认分片，蓝奏和 WebDAV 从头重试，百度由服务端决定分片复用。</p></details></template>
  </div></main><UploadReview v-if="uploadFlow.pending.value" :report="uploadFlow.pending.value.report" :checking="uploadFlow.checking.value" :submitting="uploadFlow.submitting.value" :error="uploadFlow.error.value" @cancel="uploadFlow.cancel" @check="uploadFlow.check" @submit="uploadFlow.submit"/><FolderPicker v-if="folderAccount" :kind="folderAccount.kind" :account-id="folderAccount.id" :account-name="folderAccount.name" :initial-folder="folderPurpose==='default'?form.folder:folders[folderAccount.id]||folderAccount.folder" :initial-breadcrumbs="folderPurpose==='upload'?uploadFolderTrails[folderAccount.id]:undefined" @close="folderAccount=null" @selected="folderChosen"/>
  <div v-if="modal" class="modal-backdrop" @click.self="!saving&&closeModal()"><section class="account-modal" @keydown.esc.prevent="!saving&&closeModal()" role="dialog" aria-modal="true" @keydown.tab="trapDialogFocus" aria-labelledby="account-title"><div class="modal-heading"><div><h2 id="account-title">{{form.id?'编辑网盘账号':'添加网盘账号'}}</h2><p>账号仅保存在这台 Windows 电脑。</p></div><button class="icon-button" aria-label="关闭" :disabled="saving" @click="closeModal">×</button></div>
- <form @submit.prevent="saveAccount"><fieldset class="account-fields" :disabled="saving||ctSmsBusy"><label>网盘类型<select v-model="form.kind" :disabled="!!form.id" @change="changeKind"><option value="lanzou">蓝奏云（实验接入）</option><option value="quark">夸克网盘（实验接入）</option><option value="pan123">123 云盘（实验接入）</option><option value="baidu">百度网盘（实验接入）</option><option value="guangya">光鸭云盘（实验接入）</option><option value="ctdav">诚通网盘（WebDAV，推荐）</option><option value="ctfile">诚通 OpenAPI（需接口权限）</option><option value="webdav">WebDAV</option></select></label><label>账号名称<input ref="accountNameInput" v-model="form.name" placeholder="例如：我的蓝奏云" required maxlength="80"/></label>
+ <form @submit.prevent="saveAccount"><fieldset class="account-fields" :disabled="saving||ctSmsBusy"><label>网盘类型<select v-model="form.kind" :disabled="!!form.id" @change="changeKind"><option value="lanzou">蓝奏云（实验接入）</option><option value="quark">夸克网盘（实验接入）</option><option value="pan123">123 云盘（实验接入）</option><option value="baidu">百度网盘（实验接入）</option><option value="guangya">光鸭云盘（实验接入）</option><option value="ctdav">诚通网盘（WebDAV，推荐）</option><option value="ctweb">诚通网盘（网页版登录，实验接入）</option><option value="ctfile">诚通 OpenAPI（需接口权限）</option><option value="webdav">WebDAV</option></select></label><label>账号名称<input ref="accountNameInput" v-model="form.name" placeholder="例如：我的蓝奏云" required maxlength="80"/></label>
  <template v-if="['webdav','ctdav'].includes(form.kind)"><template v-if="form.kind==='ctdav'"><div class="help-box">请在诚通后台查看 WebDAV 配置，按页面显示填写服务器地址、用户名和 WebDAV 密码，无需 OpenAPI Session。</div><button type="button" class="secondary" @click="openCtWebDAV">打开诚通 WebDAV 设置</button></template><label>WebDAV 地址<input v-model="form.endpoint" placeholder="https://dav.example.com/dav" type="url" required/></label><label>用户名<input v-model="form.username" autocomplete="off" required/></label><label>应用密码<input v-model="form.secret" type="password" autocomplete="new-password" :required="!form.id" :placeholder="form.id?'留空保留原密码':'填写网盘的 WebDAV 应用密码'"/></label></template>
  <template v-else-if="form.kind==='ctfile'">
   <label>存储空间<select v-model="form.username" :disabled="!!form.id"><option value="public">公有云</option><option value="private">私有云</option></select></label>

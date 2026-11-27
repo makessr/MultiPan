@@ -80,6 +80,8 @@ func RenameAccountEntry(ctx context.Context, client *http.Client, a Account, in 
 		items, _ := json.Marshal([]map[string]string{{"path": source.ID, "newname": in.NewName}})
 		e = c.api(ctx, "POST", "filemanager", url.Values{"opera": {"rename"}}, url.Values{"async": {"0"}, "ondup": {"fail"}, "filelist": {string(items)}}, nil)
 		targetID = path.Join(in.ParentID, in.NewName)
+	case "ctweb":
+		e = ctWebRename(ctx, client, a, source.ID, in.NewName)
 	case "ctdav", "webdav":
 		base, _ := url.Parse(a.Endpoint)
 		prefix := strings.TrimRight(base.Path, "/")
