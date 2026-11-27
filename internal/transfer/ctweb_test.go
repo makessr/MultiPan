@@ -217,3 +217,106 @@ func srvURL(r *http.Request) string {
 	}
 	return scheme + "://" + r.Host
 }
+
+func TestCtWebWorkspaceIDAcceptsWebShapes(t *testing.T) {
+	cases := map[string]int{
+		`{"code":200,"total":1,"data":[{"id":17,"name":"我的空间"}]}`:                            17,
+		`{"code":200,"data":{"list":[{"workspace_id":"23"}]}}`:                               23,
+		`{"code":200,"data":{"workspaces":[{"ws_id":31,"is_default":1}]}}`:                   31,
+		`{"code":200,"data":{"spaces":[{"id":"9","name":"共享"},{"id":44,"isDefault":true}]}}`: 44,
+		`{"code":200,"data":{"41":{"name":"默认共享空间"}}}`:                                       41,
+		`{"code":200,"data":[]}`: 0,
+	}
+	for body, want := range cases {
+		if got := ctWebWorkspaceID([]byte(body)); got != want {
+			t.Fatalf("%s: got %d want %d", body, got, want)
+		}
+	}
+}
+
+func TestCtWebListResolvesWorkspaceOnDemand(t *testing.T) {
+	var listCalls, workspaceCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/home/workspace/manage/list":
+			workspaceCalls++
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			if body["pagesize"] == nil {
+				io.WriteString(w, `{"code":200,"data":[]}`)
+				return
+			}
+			io.WriteString(w, `{"code":200,"total":1,"data":[{"id":88,"name":"我的空间","is_default":1}]}`)
+		case "/home/file/browse/list":
+			listCalls++
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			if body["workspace_id"] == nil {
+				io.WriteString(w, `{"code":400,"message":"workspace_id 参数缺失","message_key":"api.workspace.required"}`)
+				return
+			}
+			if body["workspace_id"] != float64(88) {
+				io.WriteString(w, `{"code":400,"message":"workspace_id 参数无效"}`)
+				return
+			}
+			io.WriteString(w, `{"code":200,"data":{"folder_id":"d0","totalNum":1,"results":[{"fid":1,"name":"a.txt","size":3}]}}`)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	page, e := ListAccountFiles(context.Background(), srv.Client(), ctWebTestAccount(srv.URL), "")
+	if e != nil {
+		t.Fatalf("list: %v", e)
+	}
+	if workspaceCalls != 1 || listCalls != 3 {
+		t.Fatalf("unexpected call counts workspace=%d list=%d", workspaceCalls, listCalls)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Name != "a.txt" {
+		t.Fatalf("unexpected page %+v", page)
+	}
+}
+
+func TestCtWebListUsesCurrentSpaceWhenAccepted(t *testing.T) {
+	var workspaceCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/home/workspace/manage/list" {
+			workspaceCalls++
+			io.WriteString(w, `{"code":200,"data":[]}`)
+			return
+		}
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["workspace_id"] != float64(0) {
+			io.WriteString(w, `{"code":400,"message":"workspace_id 参数无效"}`)
+			return
+		}
+		io.WriteString(w, `{"code":200,"data":{"folder_id":"d0","totalNum":1,"results":[{"fid":1,"name":"a.txt","size":3}]}}`)
+	}))
+	defer srv.Close()
+	page, e := ListAccountFiles(context.Background(), srv.Client(), ctWebTestAccount(srv.URL), "")
+	if e != nil {
+		t.Fatalf("list: %v", e)
+	}
+	if workspaceCalls != 0 {
+		t.Fatalf("workspace list should not be needed, calls=%d", workspaceCalls)
+	}
+	if len(page.Entries) != 1 {
+		t.Fatalf("unexpected page %+v", page)
+	}
+}
+
+func TestCtWebWorkspaceFailureShowsResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/home/workspace/manage/list" {
+			io.WriteString(w, `{"code":200,"total":0,"data":[],"note":"no space"}`)
+			return
+		}
+		io.WriteString(w, `{"code":400,"message":"workspace_id 参数无效"}`)
+	}))
+	defer srv.Close()
+	_, e := ListAccountFiles(context.Background(), srv.Client(), ctWebTestAccount(srv.URL), "")
+	if e == nil || !strings.Contains(e.Error(), "无法确定诚通工作空间") || !strings.Contains(e.Error(), "no space") {
+		t.Fatalf("expected workspace error with response preview, got %v", e)
+	}
+}

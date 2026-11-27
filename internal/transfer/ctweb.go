@@ -124,19 +124,29 @@ func ctWebMentionsWorkspace(err error) bool {
 	return strings.Contains(text, "workspace") || strings.Contains(text, "工作空间") || strings.Contains(text, "空间")
 }
 
-// postAdaptive retries without the workspace id first, then resolves the
-// default workspace when the account turns out to need it.
+// postAdaptive retries without the workspace id first, then walks the
+// workspace candidates the account may accept. Personal accounts differ: some
+// ignore the field, some want the default space id, some accept 0.
 func (c *ctWebClient) postAdaptive(ctx context.Context, path string, payload map[string]any, out any) error {
 	e := c.post(ctx, path, payload, out)
 	if !ctWebMentionsWorkspace(e) {
 		return e
 	}
-	ws, resolveErr := c.workspace(ctx)
-	if resolveErr != nil {
-		return resolveErr
+	// 0 means the current space in the web client; many accounts only accept it.
+	payload["workspace_id"] = 0
+	if e = c.post(ctx, path, payload, out); e == nil {
+		return nil
 	}
-	payload["workspace_id"] = ws
-	return c.post(ctx, path, payload, out)
+	if !ctWebMentionsWorkspace(e) {
+		return e
+	}
+	if ws, _ := c.workspace(ctx); ws > 0 {
+		payload["workspace_id"] = ws
+		if e = c.post(ctx, path, payload, out); e == nil {
+			return nil
+		}
+	}
+	return e
 }
 
 // workspace resolves the default workspace id. The web client always sends it;
@@ -145,32 +155,75 @@ func (c *ctWebClient) workspace(ctx context.Context) (int, error) {
 	if c.ws > 0 {
 		return c.ws, nil
 	}
-	var raw json.RawMessage
-	if e := c.post(ctx, "/home/workspace/manage/list", nil, &raw); e != nil {
-		return 0, e
+	// The web client always sends a pagination body here; an empty body makes
+	// some accounts report an empty list, so try the documented shapes first.
+	var last []byte
+	for _, payload := range []map[string]any{
+		{"start": 0, "pagesize": 100},
+		{"start": 0},
+		{},
+	} {
+		var raw json.RawMessage
+		if e := c.post(ctx, "/home/workspace/manage/list", payload, &raw); e != nil {
+			last = []byte(e.Error())
+			continue
+		}
+		last = raw
+		if id := ctWebWorkspaceID(raw); id > 0 {
+			c.ws = id
+			return id, nil
+		}
 	}
+	return 0, fmt.Errorf("无法确定诚通工作空间（返回：%s），请重新登录后再试", ctWebPreview(last))
+}
+
+// ctWebPreview shortens a response for an error message so a failed lookup can
+// be diagnosed from the UI without exposing a token.
+func ctWebPreview(raw []byte) string {
+	text := strings.Join(strings.Fields(string(raw)), " ")
+	if text == "" {
+		return "空响应"
+	}
+	if len(text) > 200 {
+		text = text[:200] + "…"
+	}
+	return text
+}
+
+// ctWebWorkspaceID finds a workspace id in a listing whose field names differ
+// between account types (个人空间 vs 共享空间).
+func ctWebWorkspaceID(raw []byte) int {
 	var value any
 	if e := json.Unmarshal(raw, &value); e != nil {
-		return 0, errors.New("诚通工作空间列表无法解析")
+		return 0
 	}
 	fallback := 0
 	var walk func(any) int
 	walk = func(node any) int {
 		switch typed := node.(type) {
 		case map[string]any:
-			if id, ok := typed["id"]; ok {
-				if n, e := strconv.Atoi(strings.TrimSpace(fmt.Sprint(id))); e == nil && n > 0 {
-					flag := false
-					for _, key := range []string{"is_default", "isDefault", "default"} {
-						if v, ok := typed[key]; ok {
-							flag = fmt.Sprint(v) == "true" || fmt.Sprint(v) == "1"
-						}
+			for _, key := range []string{"id", "workspace_id", "ws_id", "space_id", "spaceId", "wid"} {
+				id := ctWebIntValue(typed[key])
+				if id <= 0 {
+					continue
+				}
+				flag := false
+				for _, name := range []string{"is_default", "isDefault", "default"} {
+					if v, ok := typed[name]; ok {
+						flag = fmt.Sprint(v) == "true" || fmt.Sprint(v) == "1"
 					}
-					if flag {
-						return n
-					}
-					if fallback == 0 {
-						fallback = n
+				}
+				if flag {
+					return id
+				}
+				if fallback == 0 {
+					fallback = id
+				}
+			}
+			for key, v := range typed {
+				if id, e := strconv.Atoi(key); e == nil && id > 0 && fallback == 0 {
+					if _, ok := v.(map[string]any); ok {
+						fallback = id
 					}
 				}
 			}
@@ -189,14 +242,29 @@ func (c *ctWebClient) workspace(ctx context.Context) (int, error) {
 		return 0
 	}
 	if found := walk(value); found > 0 {
-		c.ws = found
-		return found, nil
+		return found
 	}
-	if fallback > 0 {
-		c.ws = fallback
-		return fallback, nil
+	return fallback
+}
+
+func ctWebIntValue(v any) int {
+	switch typed := v.(type) {
+	case nil:
+		return 0
+	case float64:
+		if typed > 0 && typed < 1<<31 {
+			return int(typed)
+		}
+	case json.Number:
+		if n, e := strconv.Atoi(typed.String()); e == nil && n > 0 {
+			return n
+		}
+	case string:
+		if n, e := strconv.Atoi(strings.TrimSpace(typed)); e == nil && n > 0 {
+			return n
+		}
 	}
-	return 0, errors.New("无法确定诚通工作空间，请重新登录后再试")
+	return 0
 }
 
 // ctWebEntry is one item of a 诚通 folder listing. Field names differ between
@@ -273,10 +341,26 @@ func (c *ctWebClient) list(ctx context.Context, parent string) (FilePage, error)
 		var reply ctWebList
 		e := c.post(ctx, "/home/file/browse/list", payload, &reply)
 		if ctWebMentionsWorkspace(e) {
-			if _, wsErr := c.workspace(ctx); wsErr != nil {
-				return page, wsErr
+			// 0 is the web client's "current space" (我的空间 / 默认共享空间), so
+			// try it before asking the server which space to use.
+			var wsErr error
+			payload["workspace_id"] = 0
+			e = c.post(ctx, "/home/file/browse/list", payload, &reply)
+			if ctWebMentionsWorkspace(e) {
+				if c.ws == 0 {
+					c.ws, wsErr = c.workspace(ctx)
+				}
+				if c.ws > 0 {
+					payload["workspace_id"] = c.ws
+					e = c.post(ctx, "/home/file/browse/list", payload, &reply)
+				}
 			}
-			continue
+			if ctWebMentionsWorkspace(e) {
+				if wsErr != nil {
+					return page, fmt.Errorf("%v；%v", wsErr, e)
+				}
+				return page, e
+			}
 		}
 		if e != nil {
 			return page, e

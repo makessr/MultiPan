@@ -7,6 +7,7 @@ frontend/node_modules
 .multipan-setup-check/
 tools/setup/payload/payload.zip
 tools/setup/*.syso
+/wails_*.syso
 .multipan-installer.lock
 /build-*.log
 /releases/
