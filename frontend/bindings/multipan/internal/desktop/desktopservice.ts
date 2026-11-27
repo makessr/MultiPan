@@ -197,6 +197,10 @@ export function CopyDownloadReport(report: string): $CancellablePromise<void> {
     return $Call.ByID(4285110758, report);
 }
 
+export function CopyGuangyaFileToDirectory(entry: transfer$0.MoveBatchEntry): $CancellablePromise<transfer$0.CloudEntry> {
+    return $Call.ByID(1486528640, entry);
+}
+
 export function CopyGuangyaFolderToDirectory(entry: transfer$0.MoveBatchEntry): $CancellablePromise<transfer$0.CloudEntry> {
     return $Call.ByID(3621249910, entry);
 }

@@ -32,11 +32,13 @@ func validGuangyaCopyFileID(id string) bool {
 }
 
 func validSavedGuangyaCopy(d diskCopy) bool {
+	directFile := d.DirectGuangya && !d.Input.Folder
 	if !validGuangyaCopyInput(d.Input) || d.Pan123 != nil ||
 		d.Direct123 ||
-		d.DirectGuangya && (!d.Input.Folder || d.Receipt.OutputFolder != d.Input.Input.Name) ||
+		d.DirectGuangya && d.Input.Folder && d.Receipt.OutputFolder != d.Input.Input.Name ||
+		directFile && d.Receipt.OutputFolder != "" ||
 		!d.DirectGuangya && d.Receipt.OutputFolder != guangyaCopyFolderPrefix+d.Receipt.ID ||
-		validateCloudFolderName(d.Receipt.OutputFolder) != nil {
+		!directFile && validateCloudFolderName(d.Receipt.OutputFolder) != nil {
 		return false
 	}
 	p := d.Guangya
@@ -58,7 +60,7 @@ func validSavedGuangyaCopy(d diskCopy) bool {
 		p.FolderID == in.EntryID || p.FolderID == in.ParentID || p.FolderID == in.DestinationID) {
 		return false
 	}
-	if p.TaskID != "" && (!validGuangyaRestoreTaskID(p.TaskID) || p.FolderID == "") {
+	if p.TaskID != "" && (!validGuangyaRestoreTaskID(p.TaskID) || p.FolderID == "" && !directFile) {
 		return false
 	}
 	return d.Receipt.State != "confirmed" || p.TaskID != "" || guangyaEmptyDirectCopy(d)
@@ -130,6 +132,7 @@ func startGuangyaCopy(ctx context.Context, client *http.Client, a Account, d dis
 		return CloudEntry{}, errors.New("光鸭盘内复制来源或目标无效")
 	}
 	in := d.Input.Input
+	directFile := d.DirectGuangya && !d.Input.Folder
 	if _, _, _, err := verifiedMoveTrails(ctx, client, a, in); err != nil {
 		return CloudEntry{}, errors.New("光鸭复制目录层级无法确认，请重新从根目录浏览")
 	}
@@ -151,16 +154,22 @@ func startGuangyaCopy(ctx context.Context, client *http.Client, a Account, d dis
 	if err != nil {
 		return CloudEntry{}, err
 	}
-	for _, entry := range before.Entries {
-		if strings.EqualFold(entry.Name, d.Receipt.OutputFolder) {
-			return CloudEntry{}, errors.New("光鸭目标已有同名复制子目录")
+	if directFile {
+		if err := checkDirectCopyName(before, source.Name); err != nil {
+			return CloudEntry{}, err
+		}
+	} else {
+		for _, entry := range before.Entries {
+			if strings.EqualFold(entry.Name, d.Receipt.OutputFolder) {
+				return CloudEntry{}, errors.New("光鸭目标已有同名复制子目录")
+			}
 		}
 	}
 	proof := guangyaCopyProof{SHA256: sha}
 	d.Source, d.Guangya = source, &proof
 	d.Submitted = true
 	ids := []string{in.EntryID}
-	if d.DirectGuangya {
+	if d.DirectGuangya && d.Input.Folder {
 		ids, err = guangyaDirectFolderChildren(d)
 		if err != nil {
 			return CloudEntry{}, err
@@ -174,38 +183,41 @@ func startGuangyaCopy(ctx context.Context, client *http.Client, a Account, d dis
 	if parent == guangyaRoot {
 		parent = ""
 	}
-	var directory struct {
-		ID string `json:"fileId"`
-	}
-	_, err = api.call(ctx, "/userres/v1/file/create_dir", map[string]any{
-		"parentId": parent, "dirName": d.Receipt.OutputFolder, "failIfNameExist": true,
-	}, &directory)
-	if err != nil || !validGuangyaCopyFileID(directory.ID) ||
-		directory.ID == in.EntryID || directory.ID == in.ParentID || directory.ID == in.DestinationID ||
-		slices.ContainsFunc(d.Manifest, func(item CopyManifestItem) bool { return item.NativeID == directory.ID }) {
-		return CloudEntry{}, errors.New("光鸭新子目录受理结果无法确认")
-	}
-	for _, entry := range before.Entries {
-		if entry.ID == directory.ID {
-			return CloudEntry{}, errors.New("光鸭返回原有项目 ID，未提交复制")
+	if !directFile {
+		var directory struct {
+			ID string `json:"fileId"`
 		}
-	}
-	proof.FolderID = directory.ID
-	if err := persist(d); err != nil {
-		return CloudEntry{}, err
-	}
-	page, err := readGuangyaCopyFolder(ctx, client, a, d)
-	if err != nil || len(page.Entries) != 0 {
-		return CloudEntry{}, errors.New("光鸭新子目录未能确认为空，未提交复制")
-	}
-	if _, err := readGuangyaCopySource(ctx, client, a, d); err != nil {
-		return CloudEntry{}, err
-	}
-	if d.Input.Folder {
-		tree, _, err := readGuangyaCopyTree(ctx, client, a, source.ID, in.DestinationID, false)
-		if err != nil || !slices.Equal(tree, d.Manifest) {
-			return CloudEntry{}, errors.New("光鸭来源目录清单已变化，未提交复制")
+		_, err = api.call(ctx, "/userres/v1/file/create_dir", map[string]any{
+			"parentId": parent, "dirName": d.Receipt.OutputFolder, "failIfNameExist": true,
+		}, &directory)
+		if err != nil || !validGuangyaCopyFileID(directory.ID) ||
+			directory.ID == in.EntryID || directory.ID == in.ParentID || directory.ID == in.DestinationID ||
+			slices.ContainsFunc(d.Manifest, func(item CopyManifestItem) bool { return item.NativeID == directory.ID }) {
+			return CloudEntry{}, errors.New("光鸭新子目录受理结果无法确认")
 		}
+		for _, entry := range before.Entries {
+			if entry.ID == directory.ID {
+				return CloudEntry{}, errors.New("光鸭返回原有项目 ID，未提交复制")
+			}
+		}
+		proof.FolderID = directory.ID
+		if err := persist(d); err != nil {
+			return CloudEntry{}, err
+		}
+		page, err := readGuangyaCopyFolder(ctx, client, a, d)
+		if err != nil || len(page.Entries) != 0 {
+			return CloudEntry{}, errors.New("光鸭新子目录未能确认为空，未提交复制")
+		}
+		if _, err := readGuangyaCopySource(ctx, client, a, d); err != nil {
+			return CloudEntry{}, err
+		}
+		if d.Input.Folder {
+			tree, _, err := readGuangyaCopyTree(ctx, client, a, source.ID, in.DestinationID, false)
+			if err != nil || !slices.Equal(tree, d.Manifest) {
+				return CloudEntry{}, errors.New("光鸭来源目录清单已变化，未提交复制")
+			}
+		}
+		parent = proof.FolderID
 	}
 	if len(ids) == 0 {
 		return checkGuangyaCopy(ctx, client, a, d)
@@ -214,7 +226,7 @@ func startGuangyaCopy(ctx context.Context, client *http.Client, a Account, d dis
 		TaskID string `json:"taskId"`
 	}
 	_, err = api.call(ctx, "/userres/v1/file/copy_file", map[string]any{
-		"fileIds": ids, "parentId": proof.FolderID,
+		"fileIds": ids, "parentId": parent,
 	}, &ack)
 	if err != nil || !validGuangyaRestoreTaskID(ack.TaskID) {
 		return CloudEntry{}, errors.New("光鸭复制未获得明确任务凭证")
@@ -279,6 +291,9 @@ func checkGuangyaCopy(ctx context.Context, client *http.Client, a Account, d dis
 		case <-time.After(time.Second):
 		}
 	}
+	if d.DirectGuangya && !d.Input.Folder {
+		return checkGuangyaDirectFileCopy(ctx, client, a, d)
+	}
 	if d.DirectGuangya {
 		target, err := locateGuangyaCopyFolder(ctx, client, a, d)
 		if err != nil {
@@ -311,6 +326,42 @@ func checkGuangyaCopy(ctx context.Context, client *http.Client, a Account, d dis
 		}
 	}
 	return target, nil
+}
+
+func checkGuangyaDirectFileCopy(ctx context.Context, client *http.Client, a Account, d diskCopy) (CloudEntry, error) {
+	in := d.Input.Input
+	page, err := relayGuangyaPage(ctx, client, a, in.DestinationID)
+	if err != nil {
+		return CloudEntry{}, err
+	}
+	var match CloudEntry
+	for _, entry := range page.Entries {
+		if entry.Folder || entry.ID == d.Source.ID || d.Source.Size == nil || entry.Size == nil ||
+			entry.Name != d.Source.Name || *entry.Size != *d.Source.Size {
+			continue
+		}
+		if match.ID != "" {
+			return CloudEntry{}, errors.New("光鸭目标出现多个同名副本，无法核对")
+		}
+		match = entry
+	}
+	if match.ID == "" {
+		return CloudEntry{}, errors.New("光鸭目标未找到同名副本，请到目标目录核对")
+	}
+	source, err := readGuangyaCopySource(ctx, client, a, d)
+	if err != nil {
+		return CloudEntry{}, err
+	}
+	for _, item := range []struct {
+		parent string
+		entry  CloudEntry
+	}{{in.ParentID, source}, {in.DestinationID, match}} {
+		sha, err := readGuangyaFileHash(ctx, client, a, item.parent, item.entry, nil)
+		if err != nil || sha != d.Guangya.SHA256 {
+			return CloudEntry{}, errors.New("光鸭源文件或副本的完整内容无法核对")
+		}
+	}
+	return match, nil
 }
 
 func checkGuangyaCopiedTree(ctx context.Context, client *http.Client, a Account, d diskCopy, target CloudEntry) (CloudEntry, error) {
