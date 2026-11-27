@@ -15,7 +15,7 @@ import AccountHealth from './AccountHealth.vue'
 import PendingReview from './PendingReview.vue'
 import UploadReview from './UploadReview.vue'
 import {useUploadReview} from './useUploadReview'
-import {matchUploadFolder,type UploadFolderMatch} from './uploadFolderMatch'
+import {matchUploadFolder,type UploadFolderMatch,type UploadFolderChoice} from './uploadFolderMatch'
 import FolderPicker from './FolderPicker.vue'
 import CloudFiles from './CloudFiles.vue'
 import AppIcon from './AppIcon.vue'
@@ -53,7 +53,7 @@ const localFileCount=computed(()=>files.value.filter(f=>!f.directory).length),lo
 const folderAccount=ref<Account|null>(null),folderPurpose=ref<'upload'|'default'>('upload'),folderPaths=ref<Record<string,string>>({})
 const uploadFolderTrails=ref<Record<string,CloudFolder[]>>({})
 const folderMatches=ref<Record<string,UploadFolderMatch>>({}),folderMatchStatus=ref('')
-const folderMatchLabels={searching:'正在查找目录…',missing:'未找到相近目录',ambiguous:'有多个相近路径，请手动选择',error:'目录读取失败，可手动选择'}
+const folderMatchLabels={searching:'正在查找目录…',missing:'未找到相近目录',error:'目录读取失败，可手动选择'}
 let folderMatchRun=0
 function clearFolderMatches(){folderMatchRun++;folderMatches.value={};folderMatchStatus.value=''}
 function isCloud(kind:string){return ['lanzou','quark','pan123','baidu','ctfile','ctdav','guangya'].includes(kind)}
@@ -115,11 +115,23 @@ function folderMatchChoices(accountId:string){
  const match=folderMatches.value[accountId]
  return match?.state==='found'?match.choices:[]
 }
+async function refineFolderMatch(accountId:string,choice:UploadFolderChoice){
+ const run=folderMatchRun
+ const current=()=>run===folderMatchRun
+ folderMatches.value[accountId]={state:'searching'}
+ try{
+  const result=await matchUploadFolder(choice.trail[0].id,choice.remaining,parent=>api.ListCloudFolders(accountId,parent),current,choice.trail)
+  if(current())folderMatches.value[accountId]=result
+ }catch{
+  if(current())folderMatches.value[accountId]={state:'error'}
+ }
+}
 function useFolderMatch(accountId:string,id:string){
  const match=folderMatches.value[accountId]
  if(busy.value||tab.value!=='upload'||match?.state!=='found'||!accounts.value.some(a=>a.id===accountId))return
  const choice=match.choices.find(folder=>folder.id===id)
  if(!choice)return
+ if(choice.remaining.length){void refineFolderMatch(accountId,choice);return}
  folders.value[accountId]=choice.id
  folderPaths.value[accountId]=choice.path
  uploadFolderTrails.value[accountId]=choice.trail
@@ -307,7 +319,7 @@ function navigationDisabled(page:string){
   <template v-if="folderMatches[a.id].state==='found'">
    <span class="muted">候选目录</span>
    <button v-for="choice in folderMatchChoices(a.id)" :key="choice.id" type="button" class="secondary" :disabled="busy"
-    :title="choice.path" :aria-label="accountLabel(a)+'使用 '+choice.path" @click="useFolderMatch(a.id,choice.id)">{{choice.path}}</button>
+    :title="choice.remaining.length?choice.path+' · 点击后继续匹配其余目录':choice.path" :aria-label="accountLabel(a)+'使用 '+choice.path" @click="useFolderMatch(a.id,choice.id)">{{choice.path}}{{choice.remaining.length?' …':''}}</button>
   </template>
   <span v-else class="muted">{{folderMatchLabels[folderMatches[a.id].state]}}</span>
  </div></div></section>
