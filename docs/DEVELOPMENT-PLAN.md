@@ -1,5 +1,13 @@
 # MultiPan 后续开发计划
 
+## 系统级安装诊断识别全用户 MSI（2026-11-27）
+
+`MultiPan-setup.exe --inspect-machine-integration` 原先只按旧 Go 机器安装器的布局核对：查 `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\MultiPan`、要求安装目录里有 `Marker` 版本文件、并只找名为 `MultiPan.lnk` 的公共快捷方式。全用户 MSI 走 Windows Installer 登记（ARP 条目不在此键下）、不写 `Marker`、快捷方式名为 `MultiPan（所有用户）.lnk`，所以按旧布局核对会把正常安装报成 `missing`。
+
+现在先按 MSI 的标记键 `HKLM\Software\MultiPan\MachineInstaller`（`StartMenu` 或 `Desktop` 为 1）判断归属，并额外要求在安装目录里找到 `MultiPan.exe`，避免残留标记把无关目录误判成安装。命中后报告 `installer: msi`、`registration.status: managed-by-installer`（提示在「设置 → 应用」卸载），两个快捷方式按新名字核对路径与工作目录，不再要求 `Marker` 版本。未命中时保持原有旧布局核对，并把三项都为 `missing` 的情况标记为 `installer: none`。MSI 路径不做旧的目录 ACL 审计（那套策略只服务于旧安装器的受保护目录），但仍会带上 `blocked` 状态。
+
+验证：`internal/installation` 新增 `TestInspectMachineIntegrationRecognisesMSI`，覆盖标记为 0 不算安装、命中后快捷方式缺失→`missing`、补齐后→`matches`、目录核对未通过→`unverified`、标记存在但 `MultiPan.exe` 缺失→退回旧布局。真实 MSI 机器上的输出留待 P06 验收时核对。
+
 ## APT 源发布到 GitHub Pages（2026-11-27）
 
 新增 `.github/workflows/apt-pages.yml`。Release 从草稿转为已发布时触发，也可以在「发布 APT 仓库」手动指定标签。工作流取回该版本 amd64 与 arm64 两个 `.deb`，用仓库密钥 `APT_SIGNING_KEY` 生成 `dists/stable` 索引与 `pool/main/m/multipan`，下载上一次发布的仓库作为 `--retain-from` 保留旧索引与旧包，最后推送到 `gh-pages` 分支，由 Pages 提供 `https://makessr.github.io/MultiPan`。

@@ -24,7 +24,7 @@
 
 1. 打开 [Windows 构建](https://github.com/makessr/MultiPan/actions/workflows/windows.yml)，选择 `main` 分支最近一次通过的构建。
 2. 登录 GitHub 后，在该次运行的产物区下载对应架构的 `MultiPan-Windows-x64` 或 `MultiPan-Windows-arm64` 并解压。
-3. 运行 `multipan.exe` 直接试用，用 `MultiPan-setup.exe` 安装到当前用户，或用 `MultiPan-all-users.msi` 安装到所有用户。全用户安装需要确认 UAC。压缩包内附 SHA-256 摘要和[试用指南](TRIAL-GUIDE.txt)。
+3. 运行 `multipan.exe` 直接试用，用 `MultiPan-setup.exe` 安装到当前用户，或用 `MultiPan-all-users.msi` 安装到所有用户。全用户安装需要确认 UAC。压缩包内附 SHA-256 摘要和[试用指南](TRIAL-GUIDE.txt)。全用户安装后，`MultiPan-setup.exe --action install --inspect-machine-integration --silent` 会以 `"installer": "msi"` 报告系统级登记的归属，卸载请走「设置 → 应用」。
 
 Actions 产物为未签名的预览构建。首次使用时，在左侧「我的网盘」添加账号，然后打开「多网盘上传」选择本地文件和目标目录。
 
