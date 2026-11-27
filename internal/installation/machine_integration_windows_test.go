@@ -19,7 +19,7 @@ func TestInspectMachineIntegration(t *testing.T) {
 	}
 	inspect := func(registration, startMenu, desktop string) {
 		t.Helper()
-		r := inspectMachineIntegration(layout.Directory, filepath.Dir(layout.StartLink), filepath.Dir(layout.DesktopLink), registry.CURRENT_USER, layout.RegistryPath, 0, nil)
+		r := inspectMachineIntegration(layout.Directory, filepath.Dir(layout.StartLink), filepath.Dir(layout.DesktopLink), registry.CURRENT_USER, layout.RegistryPath, layout.RegistryPath + "-msi", 0, nil)
 		if r.Registration.Status != registration || r.StartMenu.Status != startMenu || r.Desktop.Status != desktop {
 			t.Fatalf("unexpected observations: %+v", r)
 		}
@@ -38,7 +38,7 @@ func TestInspectMachineIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	inspect("matches", "matches", "matches")
-	blocked := inspectMachineIntegration(layout.Directory, filepath.Dir(layout.StartLink), filepath.Dir(layout.DesktopLink), registry.CURRENT_USER, layout.RegistryPath, 0, errors.New("fixture unsafe ACL"))
+	blocked := inspectMachineIntegration(layout.Directory, filepath.Dir(layout.StartLink), filepath.Dir(layout.DesktopLink), registry.CURRENT_USER, layout.RegistryPath, layout.RegistryPath + "-msi", 0, errors.New("fixture unsafe ACL"))
 	if blocked.DirectorySecurity.Status != "blocked" || blocked.Registration.Status != "unverified" || blocked.StartMenu.Status != "unverified" || blocked.Desktop.Status != "unverified" {
 		t.Fatalf("untrusted location was not reported independently: %+v", blocked)
 	}
