@@ -94,7 +94,7 @@ Linux CI 会按架构和 APT 解析出的依赖清单复用 Debian 包缓存。�
 - 从工作分支开发，通过 PR 合并到 `main`。合并前须通过必需的 CI 检查。
 - 提交 PR 前，在 Windows 运行 `./scripts/build.ps1 -AppName multipan-pr-check`。该入口包括 Vue 类型检查和生产构建、Go 测试、`go vet` 及前端专项回归。
 - 每个开发提交同步更新本 README。PR 标题和说明统一用中文，注明用户可见变化、已执行的验证和待手动验收事项。
-- 每次发布前按[发布前检查](docs/RELEASE-CHECKLIST.md)核对合并提交、CI 和待发布附件。
+- 每次发布前按[发布前检查](docs/RELEASE-CHECKLIST.md)核对合并提交、CI 和待发布附件。`scripts/check-release-readiness.ps1` 在 Windows PowerShell 5.1 和 PowerShell 7 下都能运行；在 Windows 上用 `powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-release-readiness.ps1 -Commit <提交>` 调用。
 
 ## 本机数据
 

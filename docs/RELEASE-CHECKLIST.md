@@ -11,6 +11,8 @@
    ./scripts/check-release-readiness.ps1 -Commit $commit
    ```
 
+   Windows 没有 PowerShell 7 时用 `powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-release-readiness.ps1 -Commit $commit` 运行，脚本在 5.1 和 7 下结果一致。
+
    含双架构 APT 验证的提交还须通过「验证双架构 APT 仓库」。
 
 4. 从已核对的构建选择发布文件，并检查版本、系统、架构、SHA-256 和许可证。打包 Linux 版本时，为 amd64 和 arm64 各提供一个 Debian 安装包和对应的 SHA-256 文件。正式在线更新按对应平台要求核对发布签名和更新元数据。macOS 以[未公证预览版](DESKTOP-DISTRIBUTION.md#macos-预览版)分发。准备预发布草稿时，核对 Apple Silicon 和 Intel 的 ZIP 及配套 SHA-256，并在发布说明标注「未公证」。
