@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,7 +25,7 @@ func TestMachineCheckpointCrashChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = s.installProtectedMachine(fixture("0.99.0"), []byte("MZ-new"), Options{
+	err = s.installProtectedMachine(fixture("0.99.0"), []byte("MZ-new"), Options{
 		beforeProtectedMove: func(from, to string) error {
 			atSecondFile := filepath.Base(from) == PayloadNames[1]
 			backupPhase := filepath.Dir(from) == layout.Directory
@@ -34,11 +35,11 @@ func TestMachineCheckpointCrashChild(t *testing.T) {
 			return nil
 		},
 	})
-	t.Fatal("did not reach the requested interruption")
+	t.Fatal("did not reach the requested interruption", err)
 }
 
 func TestMachineCheckpointInterruptedProcessProtectsBothVersions(t *testing.T) {
-	for _, phase := range []string{"backup", "commit"} {
+	for _, phase := range []string{"backup", "commit", "retry", "first-install"} {
 		t.Run(phase, func(t *testing.T) {
 			s := scopedFixture(t)
 			l, err := s.Layout(ScopeMachine)
@@ -53,7 +54,12 @@ func TestMachineCheckpointInterruptedProcessProtectsBothVersions(t *testing.T) {
 				setFixtureDACL(t, dir, "D:P(A;OICI;FA;;;"+sid+")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
 			}
 			old, next := fixture("0.98.0"), fixture("0.99.0")
-			if err = s.installProtectedMachine(old, []byte("MZ-old"), Options{}); err != nil {
+			if phase == "first-install" {
+				if err := os.Mkdir(l.Directory, 0700); err != nil {
+					t.Fatal(err)
+				}
+				setFixtureDACL(t, l.Directory, "D:P(A;OICI;FA;;;"+sid+")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
+			} else if err = s.installProtectedMachine(old, []byte("MZ-old"), Options{}); err != nil {
 				t.Fatal(err)
 			}
 			checkpoint := filepath.Join(l.Directory, machineCheckpointName)
@@ -61,8 +67,10 @@ func TestMachineCheckpointInterruptedProcessProtectsBothVersions(t *testing.T) {
 				t.Fatal("completed install left a checkpoint", err)
 			}
 			unknown := filepath.Join(l.Directory, "leave-this.txt")
-			if err = os.WriteFile(unknown, []byte("unmanaged"), 0600); err != nil {
-				t.Fatal(err)
+			if phase != "first-install" {
+				if err = os.WriteFile(unknown, []byte("unmanaged"), 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			exe, err := os.Executable()
 			if err != nil {
@@ -82,6 +90,66 @@ func TestMachineCheckpointInterruptedProcessProtectsBothVersions(t *testing.T) {
 				t.Fatal(err)
 			}
 			var record machineCheckpoint
+			if phase == "first-install" {
+				if err := json.Unmarshal(raw, &record); err != nil || record.Previous.Version != "" || len(record.Original) != 0 {
+					t.Fatalf("expected a first install checkpoint: %+v %v", record, err)
+				}
+				archiveName := ".multipan-recovered-" + strings.TrimPrefix(record.Stage, ".multipan-stage-")
+				archivePath := filepath.Join(filepath.Dir(l.Directory), archiveName)
+				staged := filepath.Join(l.Directory, record.Stage, PayloadNames[1])
+				recoveryMustStop := func() {
+					t.Helper()
+					result, err := s.RecoverMachineCheckpoint()
+					if err == nil || result.Recovered {
+						t.Fatalf("first install conflict accepted: %+v %v", result, err)
+					}
+					requireFile(t, checkpoint, raw)
+					requireFile(t, filepath.Join(l.Directory, App), next.Files[App])
+				}
+				if err := os.WriteFile(archivePath, []byte("existing"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				recoveryMustStop()
+				requireFile(t, archivePath, []byte("existing"))
+				if err := os.Remove(archivePath); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(unknown, []byte("unmanaged"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				recoveryMustStop()
+				requireFile(t, unknown, []byte("unmanaged"))
+				if err := os.Remove(unknown); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(staged, []byte("unexpected"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				recoveryMustStop()
+				requireFile(t, staged, []byte("unexpected"))
+				if err := os.WriteFile(staged, next.Files[PayloadNames[1]], 0600); err != nil {
+					t.Fatal(err)
+				}
+				result, err := s.RecoverMachineCheckpoint()
+				if err != nil || !result.Recovered || result.PreviousVersion != "" || result.ArchiveDirectory != archiveName {
+					t.Fatalf("first installation recovery failed: %+v %v", result, err)
+				}
+				requireFile(t, filepath.Join(archivePath, machineCheckpointName), raw)
+				requireFile(t, filepath.Join(archivePath, App), next.Files[App])
+				requireFile(t, filepath.Join(archivePath, record.Stage, PayloadNames[1]), next.Files[PayloadNames[1]])
+				if _, err := os.Lstat(l.Directory); !os.IsNotExist(err) {
+					t.Fatalf("first install directory not cleared: %v", err)
+				}
+				if result, err = s.RecoverMachineCheckpoint(); err != nil || result.Recovered {
+					t.Fatalf("first install recovery repeated: %+v %v", result, err)
+				}
+				if err := s.installProtectedMachine(next, []byte("MZ-new"), Options{}); err != nil {
+					t.Fatal("first install could not restart", err)
+				}
+				requireFile(t, filepath.Join(l.Directory, App), next.Files[App])
+				requireFile(t, filepath.Join(archivePath, machineCheckpointName), raw)
+				return
+			}
 			if err := json.Unmarshal(raw, &record); err != nil || record.Format != 1 ||
 				record.Previous.Version != old.Version || record.Staged[App] != Digest(next.Files[App]) ||
 				filepath.Base(record.Backup) != record.Backup || filepath.Base(record.Stage) != record.Stage ||
@@ -93,7 +161,7 @@ func TestMachineCheckpointInterruptedProcessProtectsBothVersions(t *testing.T) {
 				t.Fatalf("interrupted transaction review unavailable: %+v %v", review, err)
 			}
 			wantApp := MachineCheckpointFile{Name: App, OriginalPresent: true, Installed: "missing", Staging: "staged", Backup: "previous"}
-			if phase == "commit" {
+			if phase != "backup" {
 				wantApp.Installed, wantApp.Staging = "staged", "missing"
 			}
 			if review.Files[0] != wantApp {
@@ -118,6 +186,50 @@ func TestMachineCheckpointInterruptedProcessProtectsBothVersions(t *testing.T) {
 				requireFile(t, filepath.Join(l.Directory, App), next.Files[App])
 				requireFile(t, filepath.Join(l.Directory, record.Stage, PayloadNames[1]), next.Files[PayloadNames[1]])
 			}
+			stage := filepath.Join(l.Directory, record.Stage)
+			if phase == "retry" {
+				later := filepath.Join(stage, PayloadNames[1])
+				if err := os.WriteFile(later, []byte("unexpected"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if result, err := s.RecoverMachineCheckpoint(); err == nil || result.Recovered {
+					t.Fatalf("changed staging accepted: %+v %v", result, err)
+				}
+				requireFile(t, checkpoint, raw)
+				requireFile(t, filepath.Join(l.Directory, App), next.Files[App])
+				requireFile(t, backup, old.Files[App])
+				if err := os.WriteFile(later, next.Files[PayloadNames[1]], 0600); err != nil {
+					t.Fatal(err)
+				}
+				// Reproduce a second interruption after evacuating the new file.
+				if err := os.Rename(filepath.Join(l.Directory, App), filepath.Join(stage, App)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, err := s.RecoverMachineCheckpoint()
+			if err != nil || !result.Recovered || result.PreviousVersion != old.Version {
+				t.Fatalf("restore failed: %+v %v", result, err)
+			}
+			for name, data := range old.Files {
+				requireFile(t, filepath.Join(l.Directory, name), data)
+				requireFile(t, filepath.Join(stage, name), next.Files[name])
+			}
+			requireFile(t, filepath.Join(l.Directory, Uninstaller), []byte("MZ-old"))
+			requireFile(t, filepath.Join(l.Directory, record.Backup, machineCheckpointName), raw)
+			requireFile(t, unknown, []byte("unmanaged"))
+			manifest, err := os.ReadFile(filepath.Join(l.Directory, Marker))
+			var restored Manifest
+			if err != nil || json.Unmarshal(manifest, &restored) != nil || restored.Version != old.Version {
+				t.Fatalf("previous marker not restored: %s %v", manifest, err)
+			}
+			if result, err = s.RecoverMachineCheckpoint(); err != nil || result.Recovered {
+				t.Fatalf("repeated restore should have no work: %+v %v", result, err)
+			}
+			if err = s.installProtectedMachine(next, []byte("MZ-new"), Options{}); err != nil {
+				t.Fatal("recovery did not unblock a new install", err)
+			}
+			requireFile(t, filepath.Join(l.Directory, record.Backup, machineCheckpointName), raw)
+
 		})
 	}
 }

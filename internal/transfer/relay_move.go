@@ -19,7 +19,7 @@ type diskRelayMove struct {
 }
 
 func relayMoveToRecycle(kind string) bool {
-	return kind == "pan123" || kind == "quark"
+	return kind == "pan123" || kind == "quark" || kind == "baidu"
 }
 
 func relayMoveSource(d diskRelay) bool {
@@ -27,13 +27,17 @@ func relayMoveSource(d diskRelay) bool {
 		return false
 	}
 	if d.SourceKind == "quark" {
-		return validRelayQuarkVersion(d.ETag) && relayPinnedSHA(d.SourceKind, d.ETag) == d.Job.SHA256 &&
+		stamp, _ := relayQuarkParts(d.ETag)
+		return validRelayQuarkStamp(stamp) && validRelayQuarkVersion(d.ETag) && relayPinnedSHA(d.SourceKind, d.ETag) == d.Job.SHA256 &&
 			validQuarkTrashSource(relayFileTrashSource(d))
+	}
+	if d.SourceKind == "baidu" {
+		return validRelayVersion(d.SourceKind, d.ETag) && validTrashSource(relayFileTrashSource(d))
 	}
 	return d.SourceKind == "" || d.SourceKind == "webdav" || d.SourceKind == "ctdav" || relayMoveToRecycle(d.SourceKind)
 }
 func relayMoveEligible(d diskRelay) bool {
-	return relayMoveSource(d) && !d.Folder && d.ParentJobID == "" && d.Job.State == "verified" && d.Submitted &&
+	return relayMoveSource(d) && !d.Folder && d.Job.State == "verified" && d.Submitted &&
 		validRelayVersion(d.SourceKind, d.ETag) && len(d.Job.SHA256) == 64 &&
 		(!relayTargetNeedsFileID(d.TargetKind) || validRelayTargetFolderID(d.TargetKind, d.TargetFileID))
 }
@@ -42,7 +46,7 @@ func validRelayMoveRecord(d diskRelay) bool {
 	if r.State == "" {
 		return r.Created.IsZero() && !r.Submitted && !r.Acknowledged && d.Job.State != "moving" && d.Job.State != "move_unknown" && d.Job.State != "moved"
 	}
-	if r.Created.IsZero() || !relayMoveSource(d) || d.Folder || d.ParentJobID != "" || !d.Submitted ||
+	if r.Created.IsZero() || !relayMoveSource(d) || d.Folder || !d.Submitted ||
 		len(d.Job.SHA256) != 64 || !validRelayVersion(d.SourceKind, d.ETag) || r.Acknowledged && !r.Submitted {
 		return false
 	}
@@ -59,37 +63,108 @@ func validRelayMoveRecord(d diskRelay) bool {
 	return false
 }
 
-// A fresh complete backup is required before removing an independent original.
-func (m *Manager) StartRelayMove(id, confirmation string) error {
-	return m.startRelayMove(id, confirmation, false)
+const relayMoveMaxFiles = 20
+
+// Only files in the recorded copy can be selected. Directory nodes are
+// retained, including empty directories and those with newly added files.
+func (m *Manager) relayFolderMoveFilesLocked(root diskRelay, a, b Account) []string {
+	if !root.Folder || root.ParentJobID != "" || root.Job.State != "verified" || !root.CreatedAck || !relayAccountPair(a, b, root) {
+		return nil
+	}
+	var ids []string
+	for _, d := range m.relays {
+		if d.Batch != root.Batch || d.Job.ID == root.Job.ID {
+			continue
+		}
+		if d.ParentJobID == "" || !m.relayParentReadyLocked(d) || !relayAccountPair(a, b, d) {
+			return nil
+		}
+		if d.Folder && d.Job.State == "verified" && d.CreatedAck || !d.Folder && d.Job.State == "moved" {
+			continue
+		}
+		if !relayMoveEligible(d) || d.Move.Submitted {
+			return nil
+		}
+		ids = append(ids, d.Job.ID)
+	}
+	if len(ids) > relayMoveMaxFiles {
+		return nil
+	}
+	return ids
 }
-func (m *Manager) CheckRelayMove(id string) error { return m.startRelayMove(id, "", true) }
-func (m *Manager) startRelayMove(id, confirmation string, checkOnly bool) error {
+
+func (m *Manager) StartRelayMove(id, confirmation string) error {
+	return m.startRelayMoves([]string{id}, "", confirmation, false)
+}
+
+func (m *Manager) StartRelayMoves(ids []string, folderID, confirmation string) error {
+	return m.startRelayMoves(ids, folderID, confirmation, false)
+}
+
+func (m *Manager) CheckRelayMove(id string) error {
+	return m.startRelayMoves([]string{id}, "", "", true)
+}
+
+func (m *Manager) startRelayMoves(ids []string, folderID, confirmation string, checkOnly bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	d := m.relayByIDLocked(id)
-	if m.closing || m.relayActive != "" || d == nil {
+	if m.closing || m.relayActive != "" {
 		return errors.New("请等待当前中转任务结束")
 	}
-	if checkOnly {
-		if d.Job.State != "move_unknown" || !d.Move.Submitted {
-			return errors.New("没有可只读核对的搬运删除回执")
+	if len(ids) == 0 || len(ids) > relayMoveMaxFiles {
+		return errors.New("每批可搬运 1 至 20 个文件")
+	}
+	first := m.relayByIDLocked(ids[0])
+	if first == nil {
+		return errors.New("中转记录已变化，请刷新后重新选择")
+	}
+	a, b := m.downloadAccountLocked(first.Input.SourceAccountID), m.downloadAccountLocked(first.Input.TargetAccountID)
+	if !checkOnly && first.SourceScope == first.TargetScope {
+		return errors.New("源与目标指向同一网盘配置，未开始搬运")
+	}
+	var folderFiles map[string]bool
+	if folderID != "" {
+		if folder := m.relayByIDLocked(folderID); folder != nil {
+			folderFiles = make(map[string]bool)
+			for _, id := range m.relayFolderMoveFilesLocked(*folder, a, b) {
+				folderFiles[id] = true
+			}
 		}
-	} else {
-		if !relayMoveEligible(*d) || d.Move.Submitted {
-			return errors.New("仅支持符合搬运条件的 DAV、123 或夸克独立文件，已提交的搬运须只读核对")
+		if len(folderFiles) != len(ids) {
+			return errors.New("目录文件清单已变化，请刷新后重新确认")
+		}
+	}
+
+	rows := make([]diskRelay, 0, len(ids))
+	seen := make(map[string]bool)
+	for _, id := range ids {
+		d := m.relayByIDLocked(id)
+		if d == nil || !relayMoveSource(*d) || !relayAccountPair(a, b, *d) ||
+			!m.relayParentReadyLocked(*d) || seen[d.Input.EntryID] {
+			return errors.New("存在重复源文件或来源、目标不一致，请重新选择")
+		}
+		if checkOnly {
+			if d.Job.State != "move_unknown" || !d.Move.Submitted {
+				return errors.New("没有可只读核对的搬运删除回执")
+			}
+		} else if !relayMoveEligible(*d) || d.Move.Submitted ||
+			(folderID == "" && d.ParentJobID != "" || folderID != "" && !folderFiles[id]) {
+			return errors.New("所选文件尚未满足搬运条件，请刷新后重新选择")
+		}
+		seen[d.Input.EntryID] = true
+		rows = append(rows, *d)
+	}
+	if !checkOnly {
+		if relayMoveOverlaps(a, b, rows) {
+			return errors.New("所选来源与目标文件重叠，未开始搬运")
 		}
 		expected := "删除源文件"
-		if relayMoveToRecycle(d.SourceKind) {
+		if relayMoveToRecycle(a.Kind) {
 			expected = "移入回收站"
 		}
 		if confirmation != expected {
 			return errors.New("请输入“" + expected + "”确认搬运")
 		}
-	}
-	a, b := m.downloadAccountLocked(d.Input.SourceAccountID), m.downloadAccountLocked(d.Input.TargetAccountID)
-	if !relayMoveSource(*d) || !relayAccountPair(a, b, *d) {
-		return errors.New("原账号来源已变化，未开始搬运")
 	}
 	if e := m.reserveShareLocked(a.ID); e != nil {
 		return e
@@ -98,31 +173,101 @@ func (m *Manager) startRelayMove(id, confirmation string, checkOnly bool) error 
 		delete(m.renaming, a.ID)
 		return e
 	}
-	old := *d
-	if !checkOnly {
-		d.Move = diskRelayMove{State: "working", Created: time.Now()}
-		d.Job.State = "moving"
-		d.Job.Message = "正在重新核对目标、本机缓存和源文件，尚未删除源文件"
+	now := time.Now()
+	for _, row := range rows {
+		d := m.relayByIDLocked(row.Job.ID)
+		if !checkOnly {
+			d.Move = diskRelayMove{State: "working", Created: now}
+			d.Job.State = "moving"
+			d.Job.Message = "等待逐项搬运核对，尚未提交源操作"
+		}
+		d.Job.Phase = "搬运只读预检"
 	}
-	d.Job.Phase = "搬运只读预检"
 	if m.saveLocked() != nil {
-		*d = old
+		for _, row := range rows {
+			*m.relayByIDLocked(row.Job.ID) = row
+		}
 		delete(m.renaming, a.ID)
 		delete(m.renaming, b.ID)
 		return errors.New("搬运初始记录保存失败，未开始")
 	}
-	ctx, cancel := context.WithTimeout(withTransferLimits(context.Background(), m.limits), relayJobTimeout(d.Input.Size))
-	m.relayActive = id
+	ctx, cancel := context.WithCancel(withTransferLimits(context.Background(), m.limits))
+	m.relayActive = first.Job.ID
 	m.relayCancel = cancel
-	copy := *d
 	root := m.relayRoot()
 	m.workers.Add(1)
-	go func() {
-		defer m.workers.Done()
-		err := m.performRelayMove(ctx, NewHTTPUploader().Client, a, b, copy, root, checkOnly)
-		m.finishRelayMove(ctx, a, b, copy, err)
-	}()
+	go m.runRelayMoves(ctx, a, b, rows, root, checkOnly)
 	return nil
+}
+
+// Separately configured accounts can expose the same underlying DAV path.
+func relayMoveOverlaps(a, b Account, rows []diskRelay) bool {
+	if !relayProvider(a) || !relayProvider(b) {
+		return false
+	}
+	sources := make(map[string]bool, len(rows))
+	for _, d := range rows {
+		source, err := relayURL(a, d.Input.EntryID)
+		if err != nil {
+			return true
+		}
+		sources[strings.ToLower(source)] = true
+	}
+	for _, d := range rows {
+		target, err := relayURL(b, path.Join(d.Input.DestinationID, d.Input.Name))
+		if err != nil || sources[strings.ToLower(target)] {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) runRelayMoves(ctx context.Context, a, b Account, rows []diskRelay, root string, checkOnly bool) {
+	defer m.workers.Done()
+	client := NewHTTPUploader().Client
+	remaining := rows
+	completed := false
+	for len(remaining) > 0 && ctx.Err() == nil {
+		d := remaining[0]
+		remaining = remaining[1:]
+		m.mu.Lock()
+		m.relayActive = d.Job.ID
+		m.mu.Unlock()
+		jobCtx, cancel := context.WithTimeout(ctx, relayJobTimeout(d.Input.Size))
+		resolved, err := m.resolveRelayTarget(d)
+		if err == nil {
+			err = m.performRelayMove(jobCtx, client, a, b, resolved, root, checkOnly)
+		}
+		m.mu.Lock()
+		ok := m.finishRelayMoveLocked(jobCtx, a, b, d, err)
+		m.mu.Unlock()
+		cancel()
+		if !ok {
+			break
+		}
+		completed = len(remaining) == 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, row := range remaining {
+		d := m.relayByIDLocked(row.Job.ID)
+		d.Move = row.Move
+		d.Job = row.Job
+		d.Job.Message = "批次已停止，此文件尚未提交源操作，副本保留"
+	}
+	if len(remaining) > 0 {
+		// Restart also restores unsubmitted moving records to verified.
+		_ = m.saveLocked()
+	}
+	stopped := ctx.Err() != nil
+	m.relayCancel()
+	m.relayCancel = nil
+	m.relayActive = ""
+	delete(m.renaming, a.ID)
+	delete(m.renaming, b.ID)
+	if completed && !stopped {
+		m.dispatchRelaysLocked()
+	}
 }
 
 func relayMoveTarget(ctx context.Context, client *http.Client, b Account, d diskRelay) error {
@@ -174,6 +319,8 @@ func relayMoveOriginal(ctx context.Context, client *http.Client, a Account, d di
 		return relayMove123Original(ctx, client, a, d)
 	case "quark":
 		return relayFinalSource(ctx, client, a, d, nil)
+	case "baidu":
+		return relayMoveBaiduOriginal(ctx, client, a, d)
 	}
 	if err := relayMoveSourceMetadata(ctx, client, a, d); err != nil {
 		return err
@@ -204,7 +351,7 @@ func relayFileTrashSource(d diskRelay) trashSource {
 	if d.SourceKind == "quark" {
 		purpose = quarkTrashPurpose
 	}
-	return trashSource{
+	source := trashSource{
 		Purpose: purpose, Scope: d.SourceScope,
 		Input: TrashInput{
 			AccountID: in.SourceAccountID, ParentID: in.ParentID,
@@ -215,6 +362,12 @@ func relayFileTrashSource(d diskRelay) trashSource {
 			OriginalPath: trashDirectoryPath(in.ParentID, in.Name),
 		},
 	}
+	if d.SourceKind == "baidu" {
+		id, _, _ := strings.Cut(d.ETag, ":")
+		source.Input.Entry.ObjectID = id
+		source.Original.ID, source.Original.OriginalPath, source.Original.ParentID = id, in.EntryID, ""
+	}
+	return source
 }
 
 func relayMoveAbsent(ctx context.Context, client *http.Client, a Account, d diskRelay) error {
@@ -261,6 +414,9 @@ func relayMoveCache(ctx context.Context, root string, d diskRelay) (*os.File, er
 	return f, nil
 }
 func (m *Manager) performRelayMove(ctx context.Context, client *http.Client, a, b Account, d diskRelay, root string, checkOnly bool) error {
+	if err := m.relayTargetDirectoryAncestors(ctx, client, b, d); err != nil {
+		return err
+	}
 	if checkOnly {
 		if err := relayMoveTarget(ctx, client, b, d); err != nil {
 			return err
@@ -283,6 +439,13 @@ func (m *Manager) performRelayMove(ctx context.Context, client *http.Client, a, 
 		return err
 	}
 	m.relayProgress(d.Job.ID, "搬运复核源文件", 0)
+	var baidu *baiduClient
+	if a.Kind == "baidu" {
+		baidu = newBaiduClient(client, a)
+		if err := baidu.session(ctx); err != nil {
+			return err
+		}
+	}
 	if err = relayMoveOriginal(ctx, client, a, d); err != nil {
 		return err
 	}
@@ -313,6 +476,8 @@ func (m *Manager) performRelayMove(ctx context.Context, client *http.Client, a, 
 		ack = submitPan123Trash(ctx, client, a, d.Input.EntryID) == nil
 	case "quark":
 		ack = submitQuarkTrash(ctx, client, a, d.Input.EntryID)
+	case "baidu":
+		ack = baidu.submitTrash(ctx, d.Input.EntryID) == nil
 	default:
 		resp, requestErr := relayRequest(ctx, client, a, "DELETE", d.Input.EntryID, nil, map[string]string{"If-Match": d.ETag}, 0)
 		ack = requestErr == nil && resp != nil && (resp.StatusCode == 200 || resp.StatusCode == 204)
@@ -335,6 +500,9 @@ func (m *Manager) performRelayMove(ctx context.Context, client *http.Client, a, 
 	if err = relayMoveAbsent(ctx, client, a, d); err != nil {
 		return err
 	}
+	if err = m.relayTargetDirectoryAncestors(ctx, client, b, d); err != nil {
+		return err
+	}
 	if err = relayMoveTarget(ctx, client, b, d); err != nil {
 		return err
 	}
@@ -343,48 +511,37 @@ func (m *Manager) performRelayMove(ctx context.Context, client *http.Client, a, 
 	}
 	return nil
 }
-func (m *Manager) finishRelayMove(ctx context.Context, a, b Account, d diskRelay, err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *Manager) finishRelayMoveLocked(ctx context.Context, a, b Account, d diskRelay, err error) bool {
 	op := m.relayByIDLocked(d.Job.ID)
-	if op != nil {
-		if err == nil && (!relayAccountPair(m.downloadAccountLocked(a.ID), m.downloadAccountLocked(b.ID), d) || m.closing || ctx.Err() != nil) {
-			err = errors.New("退出、停止或账号来源已变化，保留待核对")
+	if op == nil {
+		return false
+	}
+	if err == nil && (!relayAccountPair(m.downloadAccountLocked(a.ID), m.downloadAccountLocked(b.ID), d) || m.closing || ctx.Err() != nil) {
+		err = errors.New("退出、停止或账号来源已变化，保留待核对")
+	}
+	if err == nil {
+		op.Move.State = "confirmed"
+		op.Job.State = "moved"
+		op.Job.Message = "搬运已核对：源删除获明确受理且原位置不再列出、GET返回404，目标内容仍匹配；本机缓存保留"
+		if relayMoveToRecycle(a.Kind) {
+			op.Job.Message = "搬运已核对：源文件已移入回收站，目标内容仍匹配，本机缓存保留"
 		}
-		if err == nil {
-			op.Move.State = "confirmed"
-			op.Job.State = "moved"
-			op.Job.Message = "搬运已核对：源删除获明确受理且原位置不再列出、GET返回404，目标内容仍匹配；本机缓存保留"
-			if relayMoveToRecycle(a.Kind) {
-				op.Job.Message = "搬运已核对：源文件已移入回收站，目标内容仍匹配，本机缓存保留"
-			}
-		} else if op.Move.Submitted {
+	} else if op.Move.Submitted {
+		op.Move.State = "unknown"
+		op.Job.State = "move_unknown"
+		op.Job.Message = "搬运删除结果待核对，不重发、不清理缓存：" + err.Error()
+	} else {
+		op.Move.State = "not_sent"
+		op.Job.State = "verified"
+		op.Job.Message = "搬运未提交源删除，副本保留；重新确认前请检查：" + err.Error()
+	}
+	op.Job.Phase = ""
+	if m.saveLocked() != nil {
+		if op.Move.Submitted {
 			op.Move.State = "unknown"
 			op.Job.State = "move_unknown"
-			op.Job.Message = "搬运删除结果待核对，不重发、不清理缓存：" + err.Error()
-		} else {
-			op.Move.State = "not_sent"
-			op.Job.State = "verified"
-			op.Job.Message = "搬运未提交源删除，副本保留；重新确认前请检查：" + err.Error()
 		}
-		op.Job.Phase = ""
-		if m.saveLocked() != nil {
-			if op.Move.Submitted {
-				op.Move.State = "unknown"
-				op.Job.State = "move_unknown"
-			}
-			op.Job.Message = "搬运最终记录保存失败，请核对原结果，不重发源删除"
-		}
+		op.Job.Message = "搬运最终记录保存失败，请核对原结果，不重发源删除"
 	}
-	if m.relayCancel != nil {
-		m.relayCancel()
-	}
-	m.relayCancel = nil
-	m.relayActive = ""
-	delete(m.renaming, a.ID)
-	delete(m.renaming, b.ID)
-	// A source-deletion uncertainty never starts additional queued work.
-	if err == nil && op != nil && op.Job.State == "moved" {
-		m.dispatchRelaysLocked()
-	}
+	return err == nil && op.Job.State == "moved"
 }

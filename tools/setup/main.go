@@ -45,9 +45,12 @@ func main() {
 func run() error {
 	action := flag.String("action", "install", "install or uninstall")
 	testRoot := flag.String("test-root", "", "isolated test root")
-	silent := flag.Bool("silent", false, "requires test-root")
+	silent := flag.Bool("silent", false, "suppress dialogs in isolation or machine integration inspection")
 	inspect := flag.Bool("inspect", false, "read bundled metadata")
+	inspectIntegration := flag.Bool("inspect-machine-integration", false, "read machine registration and public shortcuts")
+	offlineUninstall := flag.Bool("uninstall-protected-machine", false, "uninstall a protected machine fixture in a marked sandbox")
 	inspectCheckpoint := flag.Bool("inspect-machine-checkpoint", false, "read a machine checkpoint in a marked sandbox")
+	recoverCheckpoint := flag.Bool("recover-machine-checkpoint", false, "restore the recorded starting state in a marked sandbox")
 	installDir := flag.String("install-dir", "", "dedicated absolute current-user installation directory")
 	helper := flag.Bool("uninstall-helper", false, "internal helper")
 	parentPID := flag.Int("parent-pid", 0, "internal uninstall handoff")
@@ -55,16 +58,43 @@ func run() error {
 	if *action != "install" && *action != "uninstall" {
 		return fmt.Errorf("操作无效")
 	}
-	if *silent && *testRoot == "" {
-		return fmt.Errorf("静默验证只允许独立测试目录")
-	}
-	if *inspectCheckpoint {
-		if *testRoot == "" || *action != "install" || *inspect || *installDir != "" || *helper || *parentPID != 0 || flag.NArg() != 0 {
-			return fmt.Errorf("机器安装事务核对只接受隔离测试目录")
+	if *offlineUninstall {
+		if *testRoot == "" || *action != "uninstall" || *inspect || *inspectIntegration || *inspectCheckpoint || *recoverCheckpoint || *installDir != "" || *helper || *parentPID != 0 || flag.NArg() != 0 {
+			return fmt.Errorf("受保护卸载必须指定独立测试目录且单独运行")
 		}
 		sandbox, err := installation.OpenScopedSandbox(*testRoot)
 		if err != nil {
 			return err
+		}
+		return sandbox.UninstallProtectedMachine()
+	}
+	if *inspectIntegration {
+		if *testRoot != "" || *action != "install" || *inspect || *inspectCheckpoint || *recoverCheckpoint || *installDir != "" || *helper || *parentPID != 0 || flag.NArg() != 0 {
+			return fmt.Errorf("机器安装集成核对必须单独运行")
+		}
+		report, err := installation.InspectMachineIntegration()
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(report)
+	}
+	if *silent && *testRoot == "" {
+		return fmt.Errorf("静默验证只允许独立测试目录")
+	}
+	if *inspectCheckpoint || *recoverCheckpoint {
+		if (*inspectCheckpoint && *recoverCheckpoint) || *testRoot == "" || *action != "install" || *inspect || *installDir != "" || *helper || *parentPID != 0 || flag.NArg() != 0 {
+			return fmt.Errorf("机器安装事务核对和恢复必须单独运行，并指定隔离测试目录")
+		}
+		sandbox, err := installation.OpenScopedSandbox(*testRoot)
+		if err != nil {
+			return err
+		}
+		if *recoverCheckpoint {
+			report, err := sandbox.RecoverMachineCheckpoint()
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(report)
 		}
 		report, err := sandbox.ReviewMachineCheckpoint()
 		if err != nil {

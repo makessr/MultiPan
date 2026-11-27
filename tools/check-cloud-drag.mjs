@@ -45,7 +45,7 @@ export async function RetryCloudFolder(input,token){calls.folderRetries??=[];cal
 export async function OpenDownloadFolder(path){calls.openFolders??=[];calls.openFolders.push(path);if(controls.openFolderFail)throw Error('模拟目录已删除')}
 export async function CopyDownloadReport(report){calls.reports??=[];if(controls.copyFail)throw Error('模拟剪贴板失败');calls.reports.push(report)}
 export async function CancelDownload(){calls.cancelDownloads++;controls.downloadMode='cancelled';controls.releaseDownload?.()}
-export async function ListCloudFiles(accountId,parent){calls.lists??=[];calls.lists.push({accountId,parent});if(controls.holdListParent===parent)await new Promise(resolve=>{controls.releaseList=resolve});if(controls.failListParent===parent)throw Error('模拟目录已变化');if(controls.lanzouSharePages?.[parent]&&accountId.startsWith('blue-share-'))return controls.lanzouSharePages[parent];return {currentId:parent,breadcrumbs:parent==='0'?[{id:'0',name:'根目录'}]:[{id:'0',name:'根目录'},{id:parent,name:'资料'}],entries:[{id:'dest',name:'资料',folder:true,size:-1},{id:'file',name:'测试文件.txt',folder:false,size:12}].filter(f=>parent==='0'||!f.folder)}}
+export async function ListCloudFiles(accountId,parent){calls.lists??=[];calls.lists.push({accountId,parent});if(controls.holdListParent===parent)await new Promise(resolve=>{controls.releaseList=resolve});if(controls.failListParent===parent)throw Error('模拟目录已变化');if(controls.sourceLocationPage?.currentId===parent)return controls.sourceLocationPage;if(controls.lanzouSharePages?.[parent]&&accountId.startsWith('blue-share-'))return controls.lanzouSharePages[parent];return {currentId:parent,breadcrumbs:parent==='0'?[{id:'0',name:'根目录'}]:[{id:'0',name:'根目录'},{id:parent,name:'资料'}],entries:[{id:'dest',name:'资料',folder:true,size:-1},{id:'file',name:'测试文件.txt',folder:false,size:12}].filter(f=>parent==='0'||!f.folder)}}
 export async function MoveCloudFile(input){calls.moves.push(input);controls.active++;controls.maxActive=Math.max(controls.maxActive,controls.active);try{if(controls.pauseNext){controls.pauseNext=false;await new Promise(resolve=>{controls.release=resolve})}if(controls.failIds.includes(input.entryId))throw Error('模拟结果未确认，请刷新核对')}finally{controls.active--}}
 export async function StartCloudSearch(input){calls.searches??=[];calls.searches.push(JSON.parse(JSON.stringify(input)));const id='search-'+calls.searches.length;if(controls.holdSearchStart)await new Promise(resolve=>controls.releaseSearchStart=resolve);return {id,state:'completed',message:'模拟扫描',scanned:60,directories:3,current:'root',items:[],issues:[],...structuredClone(controls.searchResult??{})}}
 export async function CloudSearchStatus(id){calls.searchPolls??=[];calls.searchPolls.push(id);if(controls.holdSearchPoll)await new Promise(resolve=>controls.releaseSearchPoll=resolve);if(controls.failSearchPoll)throw Error('模拟搜索读取失败');return {id,state:'completed',message:'模拟扫描',scanned:60,directories:3,current:'root',items:[],issues:[],...structuredClone(controls.searchResult??{})}}
@@ -110,7 +110,7 @@ export async function ValidateBaiduCloudShareActivationBatch(handles){calls.acti
 export async function ValidateManagedCloudShareExpiryBatch(handles,days){calls.expiryPreflight??=[];calls.expiryPreflight.push({handles,days});if(controls.holdExpiryPreflight)await new Promise(r=>controls.releaseExpiryPreflight=r);if(controls.failExpiryPreflight)throw Error('原期限已变化')}
 export async function ValidateGuangyaCloudShareSettingsBatch(handles,password,days){calls.guangyaSettingsPreflight??=[];calls.guangyaSettingsPreflight.push({handles,password,days});if(controls.failGuangyaSettingsPreflight)throw Error('原分享已变化')}
 export async function ShareCloudEntry(input){calls.shares??=[];calls.shares.push({...input});if(controls.holdShare)await new Promise(resolve=>controls.releaseShare=resolve);if(controls.shareFail)throw Error('模拟分享失败');return {id:'receipt-fixture',state:controls.shareUnknown?'unknown':'ready',kind:'quark',name:input.name,url:controls.shareUnknown?'':'https://pan.quark.cn/s/fixture',password:input.password,days:input.days,message:'模拟分享结果',canCheck:true,secret:'never-copy-secret',accountId:'never-copy-account'}}
-export async function ClearCloudShareHistory(){calls.shareClears=(calls.shareClears??0)+1;if(controls.shareClearFail)throw Error('模拟清理失败');const before=(controls.shareHistory??[]).length;controls.shareHistory=(controls.shareHistory??[]).filter(r=>!['ready','failed'].includes(r.result.state));return before-controls.shareHistory.length}
+export async function ClearSelectedCloudShareHistory(ids){calls.shareClears=(calls.shareClears??0)+1;calls.shareClearIDs=ids;if(controls.shareClearFail)throw Error('模拟清理失败');const before=(controls.shareHistory??[]).length;controls.shareHistory=(controls.shareHistory??[]).filter(r=>!ids.includes(r.result.id));return before-controls.shareHistory.length}
 export async function ManagedCloudShares(accountId,page){calls.managedLists??=[];calls.managedLists.push({accountId,page});if(controls.holdManagedListPage===page)await new Promise(resolve=>controls.releaseManagedList=resolve);if(controls.managedListFail||controls.failManagedListPage===page)throw Error('模拟列表失败');if(controls.cloudSearchPages?.[page])return controls.cloudSearchPages[page];return {items:page===1?[{id:'protected-local-handle',name:'Cloud.zip',status:'有效性待核对',created:'',expiry:'永久',canRevoke:true}]:[],page,hasMore:page===1,next:page===1?'fixture-cursor':''}}
 export async function ReadManagedCloudShare(id){calls.managedReads??=[];calls.managedReads.push(id);if(controls.holdManagedRead)await new Promise(resolve=>controls.releaseManagedRead=resolve);if(controls.managedReadFail||controls.failManagedHandle===id)throw Error('模拟原链接失败');if(controls.managedReadEmpty)return {name:'Cloud.zip',url:''};if(controls.managedReadResults?.[id])return controls.managedReadResults[id];if(controls.managedReadResult)return controls.managedReadResult;return {name:'Cloud.zip',url:'https://pan.quark.cn/s/cloud',password:'A1b2',expiry:'永久',message:'模拟只读',secret:'never-copy-secret'}}
 export async function ReadManagedQuarkShareLinks(ids){calls.quarkShareReadGroups??=[];calls.quarkShareReadGroups.push(ids);if(controls.holdQuarkShareReadGroup)await new Promise(resolve=>controls.releaseQuarkShareReadGroup=resolve);return ids.map(id=>controls.quarkShareReadResults?.[id]??null)}
@@ -127,8 +127,14 @@ export async function ManagedCloudSharesNext(accountId,token){calls.managedNext?
 export async function ManagedPan123PaidShares(accountId){calls.managedPaid??=[];calls.managedPaid.push(accountId);return controls.paidSharePage??{items:[],page:1,hasMore:false,next:''}}
 export async function ManagedQuarkShares(accountId,page,filter){calls.managedQuark??=[];calls.managedQuark.push({accountId,page,filter});return controls.quarkSharePages?.[filter]?.[page]??{items:[],page,hasMore:false,next:''}}
 export async function ManagedCloudShareRevokes(accountId){calls.revokeLoads??=[];calls.revokeLoads.push(accountId);return (controls.revokes??[]).filter(r=>!r.accountId||r.accountId===accountId).map(r=>({...r}))}
+export async function RevokePreviousCloudShare(accountId,receiptId,url){
+ (calls.previousRevokes??=[]).push({accountId,receiptId,url});
+ controls.revokes=[{id:'replace-revoke',name:'old',state:'unknown',canCheck:true,message:'待核对'}];
+ controls.shareHistory=(controls.shareHistory??[]).map(row=>row.result.id===receiptId&&row.accountId===accountId?{...row,previousShareUrl:undefined,previousRevocation:controls.revokes[0]}:row);
+ return controls.revokes[0];
+}
 export async function RevokeManagedCloudShare(handle){calls.revocations??=[];calls.revocations.push(handle);if(controls.holdRevoke)await new Promise(resolve=>controls.releaseRevoke=resolve);const result={id:'revoke-receipt',name:'Cloud.zip',state:'unknown',message:'模拟撤销结果待确认',created:'2026-11-17T00:00:00Z',canCheck:true};controls.revokes=[result];if(controls.revokeFail)throw Error('模拟撤销回执错误');return result}
-export async function CheckManagedCloudShareRevoke(id){calls.revokeChecks??=[];calls.revokeChecks.push(id);controls.revokes=(controls.revokes??[]).map(r=>r.id===id?{...r,state:'confirmed',message:'模拟原撤销结果已确认',canCheck:false}:r);return controls.revokes.find(r=>r.id===id)}
+export async function CheckManagedCloudShareRevoke(id){calls.revokeChecks??=[];calls.revokeChecks.push(id);controls.revokes=(controls.revokes??[]).map(r=>r.id===id?{...r,state:'confirmed',message:'模拟原撤销结果已确认',canCheck:false}:r);const result=controls.revokes.find(r=>r.id===id);controls.shareHistory=(controls.shareHistory??[]).map(row=>row.previousRevocation?.id===id?{...row,previousRevocation:result}:row);return result}
 export async function ClearManagedCloudShareRevokes(accountId){calls.revokeClears=(calls.revokeClears??0)+1;if(controls.revokeClearFail)throw Error('模拟回执清理失败');const before=(controls.revokes??[]).length;controls.revokes=(controls.revokes??[]).filter(r=>!['confirmed','not_sent'].includes(r.state));return before-controls.revokes.length}
 export async function ReadLanzouShareReceiptLinks(accountId,ids){
  calls.localBlueGroups??=[];calls.localBlueGroups.push({accountId,ids});
@@ -137,8 +143,14 @@ export async function ReadLanzouShareReceiptLinks(accountId,ids){
 }
 export async function ReadLanzouShareReceiptLink(accountId,id){calls.localBlueReads??=[];calls.localBlueReads.push({accountId,id});return {url:controls.localBlueCurrentLink??'https://fixture.lanzoub.com/i123',name:'项目',password:'fixture',expiry:'沿用网盘设置'}}
 export async function EditLanzouShareReceiptPassword(accountId,id,url,originalPassword,password,clear){calls.localBlueEdits??=[];calls.localBlueEdits.push({accountId,id,url,originalPassword,password,clear});return {state:'ready',message:'已核对'}}
+export async function LocateCreatedShareSource(accountId,id){
+ (calls.createdShareLocations??=[]).push({accountId,id})
+ if(controls.holdCreatedShareLocation)await new Promise(resolve=>controls.releaseCreatedShareLocation=resolve)
+ return controls.createdShareLocation
+}
 export async function LocateLanzouShareReceipt(accountId,id){calls.shareLocations??=[];calls.shareLocations.push({accountId,id});return controls.shareLocation}
 export async function CloudShares(){calls.shareHistoryReads=(calls.shareHistoryReads??0)+1;return (controls.shareHistory??[]).map(r=>({...r,result:{...r.result}}))}
+export async function RecreateCloudShare(receiptId,attemptId,input){(calls.recreations??=[]).push({receiptId,attemptId,input});if(controls.holdRecreate)await new Promise(resolve=>controls.releaseRecreate=resolve);return {id:'new-receipt',state:'unknown',canCheck:true}}
 export async function CheckCloudShare(id){calls.shareChecks??=[];calls.shareChecks.push(id);if(controls.holdShareCheck)await new Promise(resolve=>controls.releaseShareCheck=resolve);if(controls.shareCheckFail)throw Error('模拟检查失败');const result={id,state:'ready',kind:'quark',name:'fixture.txt',url:'https://pan.quark.cn/s/fixture',password:'A1b2',days:7,message:'模拟原操作检查',canCheck:true,...controls.shareCheckResult};if(controls.shareHistory)controls.shareHistory=controls.shareHistory.map(r=>r.result.id===id?{...r,result}:r);return result}
 export async function RestartUpload(id){calls.restartUpload=id}
 export async function CloudRecycleRestores(id){if(controls.recycleHistoryFail)throw Error('模拟回执读取失败');return (controls.recycleReceipts??[]).filter(r=>r.accountId===id)}
@@ -196,6 +208,9 @@ try {
  const state=component.setup(props,{expose(){},emit(...args){emitted.push(args)}});
  const settle=async()=>{await nextTick();await new Promise(r=>setImmediate(r));await nextTick()};
  await settle();assert.equal(state.canDrop.value,true);state.openBatchShare();assert.ok(state.batchShareTarget.value);assert.equal(state.canDrop.value,false);assert.equal(state.canNavigate.value,false);state.closeBatchShare();assert.equal(state.canDrop.value,true);
+ state.openBatchShare();state.openShareReceipt('receipt-from-batch',true);
+ assert.equal(state.batchShareTarget.value,null)
+ assert.deepEqual(emitted.slice(-2),[['mutation',false],['shareReceipt','share','a','receipt-from-batch']])
  state.error.value='模拟登录失效';assert.equal(state.canDrop.value,false);const beforeEditEvents=emitted.length;state.editCurrentAccount();assert.deepEqual(emitted.at(-1),['edit','a',false]);state.editCurrentAccount(true);assert.deepEqual(emitted.at(-1),['edit','a',true]);props.blocked=true;await settle();state.editCurrentAccount(true);assert.equal(emitted.length,beforeEditEvents+2);props.blocked=false;await settle();const listBeforeEdit=calls.lists.length;props.refreshKey=1;await settle();assert.equal(state.error.value,'');assert.equal(calls.lists.length,listBeforeEdit+1);assert.equal(state.page.value.currentId,'0');
 
  const file={path:'C:\\fixture\\测试.txt',name:'测试.txt',size:12,modified:123};
@@ -378,13 +393,34 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
  { // Batch shares: passively select files AND folders, then serialize mutations.
  const batchComponent=await loadComponent('BatchShareDialog');
  const batchProps={accountId:'a',parentId:'0',kind:'quark',entries:[{id:'same',name:'One.txt',folder:false,size:1},{id:'same',name:'Folder',folder:true,size:0},{id:'three',name:'Three.txt',folder:false,size:1}],initialSelection:[]};
- const makeBatch=(overrides={})=>batchComponent.setup(reactive({...batchProps,...overrides}),{expose(){},emit(){}});
+ const batchEvents=[]
+ const makeBatch=(overrides={})=>batchComponent.setup(reactive({...batchProps,...overrides}),{expose(){},emit(...args){batchEvents.push(args)}});
  const batch=makeBatch();assert.equal(calls.batchShares?.length??0,0);assert.equal(batch.valid.value,false);assert.equal(batch.days.value,0);assert.equal(batch.protectedShare.value,false);
  batch.toggle(batchProps.entries[0],true);batch.toggle(batchProps.entries[1],true);assert.equal(batch.selected.value.length,2);batch.toggle(batchProps.entries[0],false);assert.deepEqual(batch.selected.value,['d:same']);batch.selectAll();
  controls.holdBatchShare=true;const pendingBatch=batch.submit();await batch.submit();assert.equal(calls.batchShares.length,1);assert.equal(batch.rows.value[0].state,'running');assert.equal(batch.rows.value[1].state,'queued');assert.equal(calls.batchShares[0].password,'');assert.equal(calls.batchShares[0].days,0);batch.stop.value=true;controls.holdBatchShare=false;controls.releaseBatchShare();await pendingBatch;assert.equal(calls.batchShares.length,1);assert.equal(batch.remaining.value,2);batch.toggle(batchProps.entries[2],false);assert.equal(batch.selected.value.length,3);
  await batch.run();assert.equal(calls.batchShares.length,3);assert.equal(batch.ready.value.length,3);assert.equal(batch.resultLink(batch.rows.value[0]),'https://pan.quark.cn/s/fixture');assert.equal(calls.batchShares[1].folder,true);await batch.run();await batch.submit();assert.equal(calls.batchShares.length,3);await batch.copy();assert.match(calls.reports.at(-1),/One.txt/);assert.match(calls.reports.at(-1),/Folder/);assert.doesNotMatch(calls.reports.at(-1),/batch-|accountId|parentId/);
- const unknownBatch=makeBatch();unknownBatch.selectAll();controls.batchShareUnknown=true;await unknownBatch.submit();assert.equal(calls.batchShares.length,4);assert.equal(unknownBatch.unresolved.value,true);assert.equal(unknownBatch.resultLink(unknownBatch.rows.value[0]),'');assert.equal(unknownBatch.remaining.value,2);await unknownBatch.run();assert.equal(calls.batchShares.length,4);await unknownBatch.check(unknownBatch.rows.value[0]);assert.equal(calls.shareChecks.at(-1),'batch-4');controls.batchShareUnknown=false;await unknownBatch.run();assert.equal(calls.batchShares.length,6);assert.equal(unknownBatch.remaining.value,0);
- const lostBatch=makeBatch();lostBatch.selectAll();controls.batchShareFail=true;await lostBatch.submit();assert.equal(lostBatch.unresolved.value,true);const lostCount=calls.batchShares.length;controls.batchShareFail=false;await lostBatch.run();await lostBatch.submit();assert.equal(calls.batchShares.length,lostCount);assert.match(lostBatch.rows.value[0].error,/连接丢失/);
+ const unknownBatch=makeBatch();unknownBatch.selectAll();controls.batchShareUnknown=true;await unknownBatch.submit();assert.equal(calls.batchShares.length,4);assert.equal(unknownBatch.unresolved.value,true);assert.equal(unknownBatch.resultLink(unknownBatch.rows.value[0]),'');assert.equal(unknownBatch.remaining.value,2);await unknownBatch.run();assert.equal(calls.batchShares.length,4);
+ const confirmWindow=globalThis.window
+ try {
+  globalThis.window={confirm:()=>false}
+  const beforeBatchNavigation=batchEvents.length
+  unknownBatch.openReceipt(unknownBatch.rows.value[0])
+  assert.equal(batchEvents.length,beforeBatchNavigation)
+  globalThis.window={confirm:()=>true}
+  unknownBatch.openReceipt(unknownBatch.rows.value[0])
+  assert.deepEqual(batchEvents.at(-1),['receipt','batch-4'])
+  assert.equal(calls.batchShares.length,4)
+ } finally {
+  if(confirmWindow===undefined)delete globalThis.window
+  else globalThis.window=confirmWindow
+ }
+ await unknownBatch.check(unknownBatch.rows.value[0]);assert.equal(calls.shareChecks.at(-1),'batch-4');controls.batchShareUnknown=false;await unknownBatch.run();assert.equal(calls.batchShares.length,6);assert.equal(unknownBatch.remaining.value,0);
+ const beforeReceipt=calls.batchShares.length
+ batch.openReceipt(batch.rows.value[0])
+ assert.deepEqual(batchEvents.at(-1),['receipt','batch-1'])
+ assert.equal(calls.batchShares.length,beforeReceipt)
+ const beforeLostReceipt=batchEvents.length
+ const lostBatch=makeBatch();lostBatch.selectAll();controls.batchShareFail=true;await lostBatch.submit();assert.equal(lostBatch.unresolved.value,true);const lostCount=calls.batchShares.length;controls.batchShareFail=false;await lostBatch.run();await lostBatch.submit();assert.equal(calls.batchShares.length,lostCount);assert.match(lostBatch.rows.value[0].error,/连接丢失/);lostBatch.openReceipt(lostBatch.rows.value[0]);assert.equal(batchEvents.length,beforeLostReceipt);
  const large=makeBatch({entries:Array.from({length:60},(_,i)=>({id:String(i),name:String(i),folder:false,size:1}))});large.selectAll();assert.equal(large.selected.value.length,50);large.toggle({id:'59',folder:false},true);assert.equal(large.selected.value.length,50);
  for(const kind of ['lanzou','pan123','baidu','guangya']){const item=makeBatch({kind,entries:[batchProps.entries[0]],initialSelection:[batchProps.entries[0]]});assert.equal(item.days.value,0);assert.equal(item.protectedShare.value,kind==='baidu');assert.equal(item.valid.value,true);await item.submit();assert.equal(calls.batchShares.at(-1).action,kind==='lanzou'?'get':'create');assert.equal(calls.batchShares.at(-1).password.length,kind==='baidu'?4:0)}
  const cleanupHooks=await import(fileURL('hooks.mjs'));const disposedBatch=makeBatch();disposedBatch.selectAll();controls.holdBatchShare=true;const disposedPending=disposedBatch.submit();await settle();const disposedCount=calls.batchShares.length;cleanupHooks.cleanup.at(-1)();controls.holdBatchShare=false;controls.releaseBatchShare();await disposedPending;assert.equal(calls.batchShares.length,disposedCount);assert.equal(disposedBatch.remaining.value,2);await disposedBatch.run();assert.equal(calls.batchShares.length,disposedCount);
@@ -532,7 +568,47 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
  const revokeRow=managed.items.value[0];const revokeCount=calls.revocations?.length??0;managed.prepareRevoke(revokeRow);assert.equal(calls.revocations?.length??0,revokeCount);assert.equal(managed.confirmTarget.value.id,revokeRow.id);assert.equal(managed.locked.value,true);managed.cancelRevoke();assert.equal(managed.confirmTarget.value,null);assert.equal(calls.revocations?.length??0,revokeCount);managed.prepareRevoke(revokeRow);controls.holdRevoke=true;const revokePending=managed.revoke();await managed.revoke();assert.equal(calls.revocations.length,revokeCount+1);controls.holdRevoke=false;controls.releaseRevoke();await revokePending;assert.equal(managed.busy.value,false);assert.equal(managed.revokes.value[0].state,'unknown');assert.equal(managed.detail.value,null);const beforeRevokeCheck=calls.revocations.length;await managed.checkRevoke(managed.revokes.value[0]);assert.equal(calls.revocations.length,beforeRevokeCheck);assert.equal(calls.revokeChecks.at(-1),'revoke-receipt');assert.equal(managed.revokes.value[0].state,'confirmed');controls.revokeClearFail=true;await managed.clearRevokes();assert.match(managed.error.value,/清理失败/);assert.equal(managed.revokes.value.length,1);assert.equal(managed.busy.value,false);controls.revokeClearFail=false;await managed.clearRevokes();assert.equal(managed.revokes.value.length,0);assert.equal(calls.revocations.length,beforeRevokeCheck);managed.prepareRevoke(revokeRow);controls.revokeFail=true;await managed.revoke();assert.match(managed.error.value,/不要反复提交/);assert.equal(managed.busy.value,false);controls.revokeFail=false;await managed.load();assert.equal(managed.revokes.value[0].state,'unknown');controls.managedListFail=true;managed.revokes.value=[];await managed.load();assert.equal(managed.revokes.value[0].state,'unknown');controls.managedListFail=false;managedProps.blocked=true;const blockedRevokeCount=calls.revocations.length;managed.prepareRevoke(revokeRow);await managed.revoke();await managed.checkRevoke(managed.revokes.value[0]);assert.equal(calls.revocations.length,blockedRevokeCount);managedProps.blocked=false;assert.deepEqual(managedEvents.at(-1),['mutation',false]);
  managed.accountId.value='p';await settle();assert.equal(managed.selectedKind.value,'pan123');assert.equal(managed.canRevoke.value,true);assert.equal(managed.cursors.value[2],'fixture-cursor');const pBefore=calls.revocations.length;managed.prepareRevoke(managed.items.value[0]);assert.equal(managed.confirmTarget.value.id,managed.items.value[0].id);assert.equal(calls.revocations.length,pBefore);managed.cancelRevoke();await managed.load(2);assert.deepEqual(calls.managedNext.at(-1),{accountId:'p',token:'fixture-cursor'});assert.equal(managed.page.value,2);const nextCount=calls.managedNext.length;await managed.load(3);assert.equal(calls.managedNext.length,nextCount);assert.match(managed.error.value,/刷新第一页/);managed.accountId.value='b';await settle();assert.equal(managed.selectedKind.value,'baidu');assert.equal(managed.canRevoke.value,true);assert.equal(managed.detail.value,null);assert.deepEqual(calls.managedLists.at(-1),{accountId:'b',page:1});assert.equal(managed.accountLabel(managedProps.accounts[1]),'百度网盘 · 未命名账号');assert.equal(managed.accountLabel(managedProps.accounts[2]),'123 云盘 · 未命名账号');for(const [account,kind,url,param] of [['b','baidu','https://pan.baidu.com/s/1fixture','pwd'],['g','guangya','https://www.guangyapan.com/s/fixture','code']]){managed.accountId.value=account;await settle();controls.managedReadResult={name:'Official.zip',url,password:'A1b2',expiry:'有效期以网盘显示为准',message:'原记录'};await managed.read(managed.items.value[0]);assert.equal(managed.detailURL.value,url+'?'+param+'=A1b2');await managed.copy(true);assert.equal(calls.reports.at(-1),url+'?'+param+'=A1b2');await managed.copy(false);assert.ok(calls.reports.at(-1).includes('链接：'+url+'?'+param+'=A1b2'));assert.ok(calls.reports.at(-1).includes('提取码：A1b2'));assert.ok(calls.reports.at(-1).includes('有效期以网盘显示为准'));managed.autoFill.value=false;assert.equal(managed.detailURL.value,url);await managed.copy(true);assert.equal(calls.reports.at(-1),url);managed.autoFill.value=true;controls.managedReadResult.password='';await managed.read(managed.items.value[0]);assert.equal(managed.detailURL.value,url);assert.equal(controls.managedReadResult.url,url)}delete controls.managedReadResult;managed.accountId.value='b';await settle();const bBefore=calls.revocations.length;managed.prepareRevoke(managed.items.value[0]);assert.equal(managed.confirmTarget.value.id,managed.items.value[0].id);assert.equal(calls.revocations.length,bBefore);managed.cancelRevoke();
  managed.accountId.value='g';await settle();assert.equal(managed.selectedKind.value,'guangya');assert.equal(managed.accountLabel(managedProps.accounts[3]),'光鸭云盘 · 未命名账号');const gBefore=calls.revocations.length;managed.prepareRevoke({...managed.items.value[0],canRevoke:false});assert.equal(managed.confirmTarget.value,null);assert.equal(calls.revocations.length,gBefore);managed.prepareRevoke(managed.items.value[0]);assert.equal(managed.confirmTarget.value.id,managed.items.value[0].id);managed.cancelRevoke();assert.equal(calls.revocations.length,gBefore);
- const historyComponent=await loadComponent('ShareHistory');const historyProps=reactive({accounts:[{id:'a',kind:'quark'}],blocked:false,refreshKey:'0'});const historyEvents=[];const readyReceipt={accountId:'a',created:'2026-11-17T00:00:00Z',result:{id:'history-ready',kind:'quark',name:'One.zip',state:'ready',url:'https://pan.quark.cn/s/fixture',password:'A1b2',days:7,message:'fixture',canCheck:true,secret:'never-copy-history'}};const unknownReceipt={...readyReceipt,result:{...readyReceipt.result,id:'history-unknown',name:'Two.zip',state:'unknown',url:'',password:'',canCheck:false}};controls.shareHistory=[readyReceipt,unknownReceipt];const history=historyComponent.setup(historyProps,{expose(){},emit(...args){historyEvents.push(args)}});await history.refresh();await settle();assert.equal(history.busy.value,false);assert.equal(history.rows.value.length,2);history.query.value='ONE';assert.equal(history.rows.value.length,1);const readsForLinkSearch=calls.shareHistoryReads;const writesForLinkSearch=calls.shares.length;history.query.value='链接：https://pan.quark.cn/s/fixture?pwd=Other\n提取码：Other';assert.deepEqual(history.rows.value.map(row=>row.result.id),['history-ready']);history.query.value='https://pan.quark.cn/s/Fixture';assert.equal(history.rows.value.length,0);assert.equal(calls.shareHistoryReads,readsForLinkSearch);assert.equal(calls.shares.length,writesForLinkSearch);history.query.value='';history.status.value='unknown';assert.equal(history.rows.value.length,1);history.kind.value='guangya';assert.equal(history.rows.value.length,0);history.kind.value='';history.status.value='';await history.copy(readyReceipt);assert.equal(history.error.value,'');assert.match(calls.reports.at(-1),/One.zip/);assert.doesNotMatch(calls.reports.at(-1),/never-copy|history-ready|accountId/);const historyCopies=calls.reports.length;await history.copy(unknownReceipt);assert.equal(calls.reports.length,historyCopies);const beforeHistoryCreate=calls.shares.length,beforeHistoryChecks=calls.shareChecks.length;controls.holdShareCheck=true;const historyPending=history.check(readyReceipt);await history.check(readyReceipt);assert.equal(calls.shareChecks.length,beforeHistoryChecks+1);assert.deepEqual(historyEvents.at(-1),['mutation',true]);controls.holdShareCheck=false;controls.releaseShareCheck();await historyPending;assert.equal(history.busy.value,false);assert.deepEqual(historyEvents.at(-1),['mutation',false]);assert.equal(calls.shares.length,beforeHistoryCreate);assert.equal(calls.shareChecks.at(-1),'history-ready');historyProps.blocked=true;await history.copy(readyReceipt);assert.equal(calls.reports.length,historyCopies);historyProps.blocked=false;controls.shareCheckFail=true;await history.check(readyReceipt);assert.equal(history.busy.value,false);assert.match(history.error.value,/检查失败/);assert.deepEqual(historyEvents.at(-1),['mutation',false]);controls.shareCheckFail=false;controls.shareHistory=[unknownReceipt];historyProps.refreshKey='1';await settle();assert.equal(history.records.value[0].result.state,'unknown');controls.shareHistory=[readyReceipt,unknownReceipt];await history.refresh();historyProps.blocked=true;const clearsBefore=calls.shareClears??0;await history.clearConfirmed();assert.equal(calls.shareClears??0,clearsBefore);historyProps.blocked=false;controls.shareClearFail=true;await history.clearConfirmed();assert.match(history.error.value,/清理失败/);assert.equal(history.busy.value,false);controls.shareClearFail=false;await history.clearConfirmed();assert.equal(history.records.value.length,1);assert.equal(history.records.value[0].result.state,'unknown');assert.equal(calls.shares.length,beforeHistoryCreate);assert.deepEqual(historyEvents.at(-1),['mutation',false]);controls.shareHistory=[];
+ const historyComponent=await loadComponent('ShareHistory');const historyProps=reactive({accounts:[{id:'a',kind:'quark'}],blocked:false,refreshKey:'0'});const historyEvents=[];const readyReceipt={accountId:'a',created:'2026-11-17T00:00:00Z',result:{id:'history-ready',kind:'quark',name:'One.zip',state:'ready',url:'https://pan.quark.cn/s/fixture',password:'A1b2',days:7,message:'fixture',canCheck:true,secret:'never-copy-history'}};const unknownReceipt={...readyReceipt,result:{...readyReceipt.result,id:'history-unknown',name:'Two.zip',state:'unknown',url:'',password:'',canCheck:false}};controls.shareHistory=[readyReceipt,unknownReceipt];const history=historyComponent.setup(historyProps,{expose(){},emit(...args){historyEvents.push(args)}});await history.refresh();await settle();assert.equal(history.busy.value,false);assert.equal(history.rows.value.length,2);history.query.value='ONE';assert.equal(history.rows.value.length,1);const readsForLinkSearch=calls.shareHistoryReads;const writesForLinkSearch=calls.shares.length;history.query.value='链接：https://pan.quark.cn/s/fixture?pwd=Other\n提取码：Other';assert.deepEqual(history.rows.value.map(row=>row.result.id),['history-ready']);history.query.value='https://pan.quark.cn/s/Fixture';assert.equal(history.rows.value.length,0);assert.equal(calls.shareHistoryReads,readsForLinkSearch);assert.equal(calls.shares.length,writesForLinkSearch);history.query.value='';history.status.value='unknown';assert.equal(history.rows.value.length,1);history.kind.value='guangya';assert.equal(history.rows.value.length,0);history.kind.value='';history.status.value='';await history.copy(readyReceipt);assert.equal(history.error.value,'');assert.match(calls.reports.at(-1),/One.zip/);assert.doesNotMatch(calls.reports.at(-1),/never-copy|history-ready|accountId/);const historyCopies=calls.reports.length;await history.copy(unknownReceipt);assert.equal(calls.reports.length,historyCopies);const beforeHistoryCreate=calls.shares.length,beforeHistoryChecks=calls.shareChecks.length;controls.holdShareCheck=true;const historyPending=history.check(readyReceipt);await history.check(readyReceipt);assert.equal(calls.shareChecks.length,beforeHistoryChecks+1);assert.deepEqual(historyEvents.at(-1),['mutation',true]);controls.holdShareCheck=false;controls.releaseShareCheck();await historyPending;assert.equal(history.busy.value,false);assert.deepEqual(historyEvents.at(-1),['mutation',false]);assert.equal(calls.shares.length,beforeHistoryCreate);assert.equal(calls.shareChecks.at(-1),'history-ready');historyProps.blocked=true;await history.copy(readyReceipt);assert.equal(calls.reports.length,historyCopies);historyProps.blocked=false;controls.shareCheckFail=true;await history.check(readyReceipt);assert.equal(history.busy.value,false);assert.match(history.error.value,/检查失败/);assert.deepEqual(historyEvents.at(-1),['mutation',false]);controls.shareCheckFail=false;controls.shareHistory=[unknownReceipt];historyProps.refreshKey='1';await settle();assert.equal(history.records.value[0].result.state,'unknown');
+
+ const otherReady={...readyReceipt,result:{...readyReceipt.result,id:'history-other-ready',name:'Other.zip'}}
+ controls.shareHistory=[readyReceipt,unknownReceipt,otherReady]
+ await history.refresh()
+ history.query.value='One.zip'
+ await settle()
+ historyProps.blocked=true
+ const clearsBefore=calls.shareClears??0
+ await history.clearConfirmed()
+ assert.equal(calls.shareClears??0,clearsBefore)
+ historyProps.blocked=false
+ const clearWindow=globalThis.window
+ try {
+  globalThis.window={confirm:text=>{assert.match(text,/1 条/);return false}}
+  await history.clearConfirmed()
+  assert.equal(calls.shareClears??0,clearsBefore)
+  globalThis.window={confirm:()=>true}
+  controls.shareClearFail=true
+  await history.clearConfirmed()
+  assert.match(history.error.value,/清理失败/)
+  assert.equal(history.busy.value,false)
+  controls.shareClearFail=false
+  await history.clearConfirmed()
+  assert.deepEqual(calls.shareClearIDs,['history-ready'])
+  assert.deepEqual(history.records.value.map(row=>row.result.id),['history-unknown','history-other-ready'])
+  controls.shareHistory=[{...readyReceipt,keepForReplacement:true},unknownReceipt,otherReady]
+  await history.refresh()
+  const clearsWithLinkedReceipt=calls.shareClears
+  await history.clearConfirmed()
+  assert.equal(calls.shareClears,clearsWithLinkedReceipt)
+  history.query.value=''
+  await settle()
+  await history.clearConfirmed()
+  assert.deepEqual(calls.shareClearIDs,['history-other-ready'])
+  assert.deepEqual(history.records.value.map(row=>row.result.id),['history-ready','history-unknown'])
+ } finally {
+  if(clearWindow===undefined)delete globalThis.window
+  else globalThis.window=clearWindow
+ }
+ assert.equal(calls.shares.length,beforeHistoryCreate);assert.deepEqual(historyEvents.at(-1),['mutation',false]);controls.shareHistory=[];
  // Review flow: captured inputs, late read cancellation, manual conflict review,
  // and a single enqueue even if a submit button is pressed twice.
  const {useUploadReview}=await import(fileURL('useUploadReview.mjs'));const locks=[],queuedPlans=[];
@@ -709,12 +785,27 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
    delete controls.failDirectCopyPreflight;
    assert.equal(calls.directCopies.length,priorDirect);
    assert.match(copyState.moveError.value,/整批未提交/);
-   selectDirectBatch();
+   assert.deepEqual(copyState.copyRetryEntries.value.map(row=>row.id),['44','45']);
+   copyState.openCopyRetry();
+   assert.deepEqual(copyState.moveTargets.value.map(row=>row.id),['44','45']);
    controls.failDirectCopy=true;
    await copyState.move(dest,'目标',trail,true);
    delete controls.failDirectCopy;
    assert.equal(calls.directCopies.length,priorDirect+1);
    assert.equal(copyState.moveResults.value.at(-1).skipped,true);
+   copyState.page.value={...copyState.page.value,entries:[files[0],{...files[1],name:'已改名.txt'}]};
+   copyState.openCopyRetry();
+   assert.equal(copyState.moveTargets.value.length,0);
+   copyState.page.value={...copyState.page.value,entries:files};
+   assert.deepEqual(copyState.copyRetryEntries.value.map(row=>row.id),['45']);
+   copyState.openCopyRetry();
+   assert.deepEqual(copyState.moveTargets.value.map(row=>row.id),['45']);
+   const alternate='99';
+   await copyState.move(alternate,'另一个目录',[trail[0],{id:alternate,name:'另一个目录'}],true);
+   assert.equal(calls.directCopies.length,priorDirect+2);
+   assert.equal(calls.directCopies.at(-1).input.entryId,'45');
+   assert.equal(calls.directCopies.at(-1).input.destinationId,alternate);
+   assert.equal(copyState.copyRetryEntries.value.length,0);
    selectDirectBatch();
    await copyState.move(dest,'目标',trail,true);
    assert.deepEqual(calls.directCopies.slice(-2),calls.directCopyPreflights.at(-1));
@@ -756,7 +847,7 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
   cloud.error.value='';
   assert.equal(cloud.copyAllows([folder,file]),false);
   assert.equal(cloud.copyAllows([{...file,size:0}]),false);
-  const maxFile=2*1024**3,large={...file,size:maxFile};
+  const maxFile=8*1024**3,large={...file,size:maxFile};
   assert.equal(cloud.copyAllows([large,{...large,id:'second'}]),true);
   assert.equal(cloud.copyAllows([{...file,size:maxFile+1}]),false);
   assert.equal(cloud.copyAllows([large,{...large,id:'second'},{...file,id:'third',size:1}]),false);
@@ -772,16 +863,34 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
 
  {
   const props=reactive({accounts:[{id:'large-copy',kind:'guangya'}],accountId:'large-copy',blocked:false});
-  const browser=component.setup(props,{expose(){},emit(){}});
+  const relayEvents=[];
+  const browser=component.setup(props,{expose(){},emit(...args){relayEvents.push(args)}});
   await settle();
   const entry={id:'large-file',name:'归档.bin',folder:false,size:2*1024*1024*1024};
   assert.equal(browser.copyAllows([entry]),true);
-  assert.equal(browser.copyAllows([{...entry,size:entry.size+1}]),false);
+  assert.equal(browser.copyAllows([{...entry,size:entry.size+1}]),true);
+  assert.equal(browser.copyAllows([{...entry,size:8*1024**3+1}]),false);
   assert.equal(browser.copyAllows([{...entry,size:null}]),false);
   const folder={id:'copy-folder',name:'资料',folder:true,size:null};
   assert.equal(browser.copyAllows([folder]),true);
   assert.equal(browser.copyAllows([folder,entry]),true);
   assert.equal(browser.copyAllows([folder,{...entry,size:entry.size+1}]),false);
+  browser.page.value={currentId:'root',breadcrumbs:[{id:'root',name:'根目录'}],entries:[entry]};
+  browser.openCopy(entry);
+  await browser.move('root','根目录',undefined,true);
+  assert.equal(relayEvents.filter(event=>event[0]==='relayCopy').length,0);
+  await browser.move('destination','目标',undefined,true);
+  assert.deepEqual(relayEvents.at(-1),['relayCopy',[{sourceAccountId:'large-copy',targetAccountId:'large-copy',parentId:'root',
+   destinationId:'destination',entryId:entry.id,name:entry.name,size:entry.size}],false]);
+  const larger={...entry,size:entry.size+1};
+  browser.openCopy(larger);
+  const relayCount=relayEvents.filter(event=>event[0]==='relayCopy').length;
+  const nativeCount=calls.copies.length;
+  await browser.move('destination','目标');
+  assert.equal(calls.copies.length,nativeCount);
+  assert.equal(relayEvents.filter(event=>event[0]==='relayCopy').length,relayCount);
+  await browser.move('destination','目标',undefined,true);
+  assert.equal(relayEvents.at(-1)[1][0].size,larger.size);
   browser.page.value={currentId:'root',breadcrumbs:[{id:'root',name:'根目录'}],entries:[folder]};
   browser.selectedFolderIds.value=[folder.id];
   browser.openSelectedCopy();
@@ -895,6 +1004,50 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
  assert.equal(ls.downloadOrigin.value,'根目录 / docs');
  lp.accountId='location-b';await settle();assert.equal(ls.page.value.currentId,'0');assert.equal(ls.singleResult.value,null);
  sh.cleanup.at(-1)();
+ const sourceItems=[{id:'/share/file',name:'file',folder:false,objectId:'9007199254740993123'},{id:'/share/folder',name:'folder',folder:true,objectId:'992'}];
+ controls.sourceLocationPage={currentId:'/share',entries:sourceItems};
+ const slp=reactive({accounts:[{id:'share-source',kind:'baidu'}],accountId:'share-source',blocked:false,locationRequest:null});
+ const sl=component.setup(slp,{expose(){},emit(){}});
+ await settle();
+ const shareRequest={accountId:'share-source',id:'/share',shareSource:{accountId:'share-source',parentId:'/share',targets:sourceItems,baiduIds:['9007199254740993123','992']},nonce:1};
+ const beforeShareLocation=(calls.shares?.length??0)+(calls.batchShares?.length??0);
+ slp.locationRequest=shareRequest;await settle();
+ assert.deepEqual(sl.selectedShareEntries.value.map(r=>r.id).sort(),sourceItems.map(r=>r.id).sort());
+ assert.equal(sl.shareTarget.value,null);
+ assert.equal(sl.batchShareTarget.value,null);
+ sl.openBatchShare();assert.equal(sl.batchShareTarget.value.initialSelection.length,2);sl.closeBatchShare();
+ controls.sourceLocationPage={currentId:'/share',entries:[sourceItems[0],{...sourceItems[1],objectId:'993'}]};
+ slp.locationRequest={...shareRequest,nonce:2};await settle();
+ assert.equal(sl.selectedShareEntries.value.length,0);assert.match(sl.notice.value,/未能核对全部/);
+ controls.sourceLocationPage={currentId:'/share',entries:[sourceItems[0]]};
+ slp.locationRequest={...shareRequest,nonce:3};await settle();
+ assert.equal(sl.selectedShareEntries.value.length,0);
+ slp.locationRequest={...shareRequest,nonce:4,shareSource:{...shareRequest.shareSource,targets:undefined}};await settle();
+ assert.equal(sl.selectedShareEntries.value.length,0);assert.match(sl.notice.value,/缺少可核对/);
+ assert.equal((calls.shares?.length??0)+(calls.batchShares?.length??0),beforeShareLocation);
+ const recreates=calls.recreations?.length??0;
+ const recreation={receiptId:'old-receipt',attemptId:'new-attempt',protected:true,days:7};
+ controls.sourceLocationPage={currentId:'/share',entries:sourceItems};
+ slp.locationRequest={...shareRequest,nonce:5,recreateShare:true,shareSource:{...shareRequest.shareSource,recreation}};await settle();
+ assert.deepEqual(sl.shareTarget.value.group.map(entry=>entry.id),sourceItems.map(entry=>entry.id));
+ assert.equal(calls.recreations?.length??0,recreates);
+ sl.closeShare();assert.equal(sl.shareTarget.value,null);
+ const repeatDialog=shareComponent.setup({accountId:'share-source',parentId:'/share',kind:'baidu',entry:sourceItems[0],group:sourceItems,recreation},{expose(){},emit(){}});
+ assert.equal(repeatDialog.days.value,7);assert.equal(repeatDialog.protectedShare.value,true);
+ repeatDialog.password.value='N3w4';
+ controls.holdRecreate=true;
+ const sending=repeatDialog.submit();await repeatDialog.submit();
+ assert.equal(calls.recreations.length,recreates+1);
+ controls.holdRecreate=false;controls.releaseRecreate();await sending;
+ assert.deepEqual(calls.recreations.at(-1),{receiptId:'old-receipt',attemptId:'new-attempt',input:{accountId:'share-source',parentId:'/share',entryId:'/share/file',name:'file',folder:false,action:'create',password:'N3w4',days:7,targets:sourceItems.map(({id,name,folder})=>({id,name,folder}))}});
+ await repeatDialog.submit();assert.equal(calls.recreations.length,recreates+1);
+ assert.equal(repeatDialog.result.value.state,'unknown');
+ const paidOriginal=shareComponent.setup({accountId:'123',parentId:'0',kind:'pan123',entry:sourceItems[0],recreation:{...recreation,paidPriceFen123:1234}},{expose(){},emit(){}});
+ assert.equal(paidOriginal.isPaid.value,true);assert.equal(paidOriginal.paidPrice.value,'12.34');
+ await paidOriginal.submit();assert.equal(calls.recreations.length,recreates+1,'paid recreation skipped confirmation');
+ delete controls.sourceLocationPage;
+ sh.cleanup.at(-1)();
+ console.log('PASS: saved share reselects the exact set, rejects missing items and replaced Baidu objects, and creates no link.');
  console.log('PASS: global search all-account input, path mode, pagination/type filters, result navigation, stop retains partial, stale start cancelled, read error and account limits.');
  console.log('PASS: persistent copy history UI, only-read checks, duplicate guard, clear retains unknown, failed check visible, pagination/filtering, read failure and account isolation.');
  console.log('PASS: four-provider mixed copy, 123 whole-batch preflight, no MOVE, stop on failure, and unsupported provider guards.');
@@ -2227,14 +2380,14 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
  delete controls.recycleCoverage
  ;(await import(fileURL('hooks.mjs'))).cleanup.at(-1)()
  console.log('PASS: LanZou recycle coverage is account-scoped, read-only and reloads the selected list page.')
- historyProps.accounts[0].name='归档账号'
  controls.shareHistory=[readyReceipt,{...unknownReceipt,accountId:'removed'}]
- await history.refresh()
- assert.equal(history.accountLabel(readyReceipt),'夸克网盘 · 归档账号')
- assert.equal(history.accountLabel(controls.shareHistory[1]),'夸克网盘 · 原账号已移除')
- history.query.value='归档账号'
- assert.deepEqual(history.rows.value.map(row=>row.result.id),['history-ready'])
- history.query.value=''
+ const archiveHistory=historyComponent.setup(reactive({accounts:[{id:'a',kind:'quark',name:'归档账号'}],blocked:false}),{expose(){},emit(){}})
+ await archiveHistory.refresh()
+ assert.equal(archiveHistory.accountLabel(readyReceipt),'夸克网盘 · 归档账号')
+ assert.equal(archiveHistory.accountLabel(controls.shareHistory[1]),'夸克网盘 · 原账号已移除')
+ archiveHistory.query.value='归档账号'
+ assert.deepEqual(archiveHistory.rows.value.map(row=>row.result.id),['history-ready'])
+ ;(await import(fileURL('hooks.mjs'))).cleanup.at(-1)()
  const batchHistoryProps=reactive({accounts:[{id:'a',kind:'quark',name:'归档账号'},{id:'baidu-history',kind:'baidu',name:'网盘归档'}],blocked:false})
  const batchHistory=historyComponent.setup(batchHistoryProps,{expose(){},emit(){}})
  const baiduReceipt={...readyReceipt,accountId:'baidu-history',result:{
@@ -2327,6 +2480,61 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
   console.log('PASS: local share history pages without extra reads, distinguishes duplicate account labels, retains Lanzou selection across pages, and copies the full filter.')
  }
  {
+  const locationProps=reactive({accounts:[{id:'original',kind:'quark'}],blocked:false,refreshKey:'0'})
+  const sourceEvents=[]
+  const sourceHistory=historyComponent.setup(locationProps,{expose(){},emit(...args){sourceEvents.push(args)}})
+  controls.shareHistory=[{...readyReceipt,accountId:'original',canOpenSource:true,canRecreate:true}]
+  await settle()
+  await sourceHistory.refresh()
+  const routeCalls=calls.createdShareLocations?.length??0
+  controls.createdShareLocation={accountId:'different',parentId:'folder'}
+  await sourceHistory.openSource(sourceHistory.rows.value[0])
+  assert.equal(sourceEvents.length,0)
+  assert.match(sourceHistory.error.value,/原目录无法核对/)
+  controls.createdShareLocation={accountId:'original',parentId:'source-folder'}
+  await sourceHistory.openSource(sourceHistory.rows.value[0])
+  assert.deepEqual(sourceEvents,[['source',{accountId:'original',parentId:'source-folder'},false]])
+
+  controls.createdShareLocation.recreation={receiptId:readyReceipt.result.id,attemptId:'fixture-attempt'}
+  await sourceHistory.openSource(sourceHistory.rows.value[0],true)
+  assert.deepEqual(sourceEvents.at(-1),['source',controls.createdShareLocation,true])
+  controls.holdCreatedShareLocation=true
+  const staleSource=sourceHistory.openSource(sourceHistory.rows.value[0])
+  locationProps.refreshKey='1'
+  await settle()
+  controls.holdCreatedShareLocation=false
+  controls.releaseCreatedShareLocation()
+  await staleSource
+  assert.equal(sourceEvents.length,2)
+  assert.deepEqual(calls.createdShareLocations.slice(routeCalls),Array.from({length:4},()=>({accountId:'original',id:readyReceipt.result.id})))
+  controls.shareHistory=[{...readyReceipt,accountId:'original',previousShareUrl:'https://pan.quark.cn/s/old-link'}]
+  await sourceHistory.refresh()
+  const target=sourceHistory.rows.value[0]
+  await sourceHistory.preparePreviousRevoke(target)
+  assert.equal(calls.previousRevokes?.length??0,0)
+  await sourceHistory.cancelPreviousRevoke()
+  await sourceHistory.submitPreviousRevoke()
+  assert.equal(calls.previousRevokes?.length??0,0)
+  await sourceHistory.preparePreviousRevoke(target)
+  await sourceHistory.submitPreviousRevoke()
+  assert.deepEqual(calls.previousRevokes,[{accountId:'original',receiptId:target.result.id,url:'https://pan.quark.cn/s/old-link'}])
+  assert.equal(sourceHistory.rows.value[0].previousRevocation.state,'unknown')
+  const reopened=historyComponent.setup(locationProps,{expose(){},emit(){}})
+  await reopened.refresh()
+  assert.equal(reopened.rows.value[0].previousRevocation.state,'unknown')
+  const reads=calls.revokeChecks?.length??0
+  await reopened.checkPreviousRevoke(target)
+  assert.equal(calls.revokeChecks?.length??0,reads)
+  await reopened.checkPreviousRevoke(reopened.rows.value[0])
+  assert.equal(reopened.rows.value[0].previousRevocation.state,'confirmed')
+  assert.deepEqual(calls.revokeChecks.slice(reads),['replace-revoke'])
+  const {cleanup}=await import(fileURL('hooks.mjs'))
+  cleanup.at(-1)()
+  cleanup.at(-2)()
+  assert.equal(calls.previousRevokes.length,1)
+  console.log('PASS: reopening a replacement retains the scoped, read-only revocation check.')
+ }
+ {
   const props=reactive({accounts:[{id:'qa',kind:'quark'},{id:'qb',kind:'quark'}],refreshKey:'0'})
   const checkBatch=historyComponent.setup(props,{expose(){},emit(){}})
   const receipt=(index,accountId)=>({
@@ -2338,8 +2546,22 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
   await settle()
   await checkBatch.refresh()
   assert.equal(checkBatch.pageCheckTargets.value.length,0)
+  assert.equal(checkBatch.pageCheckAccounts.value.length,2)
+  const [firstAccount,secondAccount]=checkBatch.pageCheckAccounts.value
+  checkBatch.checkAccount.value=secondAccount
+  const mixedPageStart=calls.shareChecks.length
+  await checkBatch.checkPage()
+  assert.deepEqual(calls.shareChecks.slice(mixedPageStart),['review-22'])
+  assert.equal(checkBatch.page.value,1)
+  assert.equal(checkBatch.accountFilter.value,'')
+  checkBatch.checkAccount.value=firstAccount
+  assert.equal(checkBatch.pageCheckTargets.value.length,20)
+  assert.equal(checkBatch.checkedInAccount.value,false)
+  checkBatch.checkAccount.value=secondAccount
+  assert.equal(checkBatch.pageCheckTargets.value.length,0)
   checkBatch.accountFilter.value=[...checkBatch.availableAccounts.value.keys()][0]
   await settle()
+  assert.equal(checkBatch.checkAccount.value,'')
   assert.equal(checkBatch.pageCheckTargets.value.length,20)
   const beforeChecks=calls.shareChecks.length,beforeWrites=calls.shares.length
   controls.holdShareCheck=true
@@ -2376,14 +2598,68 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
   assert.equal(calls.shareChecks.length,continuedAt+2)
   await checkBatch.checkPage(true)
   assert.deepEqual(calls.shareChecks.slice(continuedAt+2),Array.from({length:20},(_,index)=>'review-'+index))
+  controls.shareHistory=[
+   ...controls.shareHistory,...Array.from({length:50},(_,index)=>receipt(23+index,'qa')),
+  ]
+  await checkBatch.refresh()
+  await settle()
+  checkBatch.changePage(2)
+  await settle()
+  const pageTwoStart=calls.shareChecks.length
+  const expectedPageTwo=checkBatch.pageCheckTargets.value.map(row=>row.result.id)
+  assert.equal(expectedPageTwo.length,20)
+  await checkBatch.checkPage()
+  assert.deepEqual(calls.shareChecks.slice(pageTwoStart),expectedPageTwo)
+  checkBatch.changePage(1)
+  await settle()
+  assert.equal(checkBatch.checkedInAccount.value,true)
+  assert.deepEqual(checkBatch.pageCheckTargets.value.slice(0,3).map(row=>row.result.id),['review-20','review-21','review-23'])
+  checkBatch.query.value='fixture.txt'
+  await settle()
+  assert.equal(checkBatch.checkedInAccount.value,true)
+  assert.deepEqual(checkBatch.pageCheckTargets.value.map(row=>row.result.id),['review-20','review-21'])
+  checkBatch.query.value=''
+  await settle()
+  checkBatch.changePage(2)
+  await settle()
+  assert.equal(checkBatch.checkedInAccount.value,true)
+  assert.ok(checkBatch.pageCheckTargets.value.every(row=>!expectedPageTwo.includes(row.result.id)))
   assert.equal(calls.shares.length,beforeWrites)
   ;(await import(fileURL('hooks.mjs'))).cleanup.at(-1)()
   console.log('PASS: local receipt batch check uses at most 20 per run, continues with unread receipts after stopping, and never crosses account scope.')
  }
  {
+  const props=reactive({accounts:[{id:'a',kind:'pan123'}],blocked:false,refreshKey:'0'})
+  const history=historyComponent.setup(props,{expose(){},emit(){}})
+  const result={...readyReceipt.result,id:'pan123-free',kind:'pan123'}
+  const free={...readyReceipt,action:'create',result}
+  const paid={...free,paidPriceFen123:235,result:{...result,id:'pan123-paid',state:'unknown',url:'',canCheck:false}}
+  controls.shareHistory=[free,paid]
+  await settle()
+  await history.refresh()
+  assert.deepEqual(history.availableActions.value.map(([key])=>key),['create','createPaid123'])
+  history.action.value='createPaid123'
+  assert.deepEqual(history.rows.value.map(row=>row.result.id),['pan123-paid'])
+  const [row]=history.rows.value
+  const before={urls:events.openedURLs.length,checks:calls.shareChecks.length,writes:calls.shares.length}
+  assert.equal(history.canOpenPaidReview(row),true)
+  props.blocked=true
+  await history.openPaidReview(row)
+  props.blocked=false
+  await history.openPaidReview(row)
+  assert.deepEqual(events.openedURLs.slice(before.urls),['https://yun.123pan.cn/shareList'])
+  assert.equal(calls.shareChecks.length,before.checks)
+  assert.equal(calls.shares.length,before.writes)
+  ;(await import(fileURL('hooks.mjs'))).cleanup.at(-1)()
+  console.log('PASS: 123 paid receipts filter separately and open the official review page without replaying creation.')
+ }
+ {
+  const receiptEvents=[]
   const dialog=shareComponent.setup({
-   accountId:'p',parentId:'0',kind:'pan123',entry:{id:'22',name:'资料',folder:true},
-  },{expose(){},emit(){}})
+   accountId:'p',parentId:'0',kind:'pan123',entry:{id:'22',name:'资料',folder:true},showReceiptLink:true,
+  },{expose(){},emit(...args){receiptEvents.push(args)}})
+  dialog.openReceipt()
+  assert.deepEqual(receiptEvents,[])
   dialog.paid.value=true
   dialog.paidPrice.value='12.05'
   dialog.paidDescription.value='资源说明'
@@ -2406,6 +2682,21 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
    paidPriceFen123:1205,paidDescription123:'资源说明',
   }])
   assert.equal(dialog.resultLink.value,'')
+  dialog.openReceipt()
+  assert.deepEqual(receiptEvents,[['receipt',dialog.result.value.id]])
+  assert.equal(calls.shares.length,beforePaid+1)
+  workspace.openPendingModule('share','p',dialog.result.value.id)
+  assert.equal(workspace.tab.value,'shares')
+  assert.equal(workspace.pendingReceipt.value.accountId,'p')
+  assert.equal(workspace.pendingReceipt.value.receiptId,dialog.result.value.id)
+  const originalReceipt={accountId:'p',action:'create',result:dialog.result.value}
+  controls.shareHistory=[{...originalReceipt,accountId:'other'},originalReceipt]
+  const focusedHistory=historyComponent.setup({accounts:[],reviewTarget:workspace.pendingReceipt.value},{expose(){},emit(){}})
+  const beforeFocusChecks=calls.shareChecks.length
+  await settle()
+  assert.deepEqual(focusedHistory.rows.value.map(row=>row.accountId),['p'])
+  assert.equal(calls.shareChecks.length,beforeFocusChecks)
+  ;(await import(fileURL('hooks.mjs'))).cleanup.at(-1)()
   console.log('PASS: 123 paid creation requires consent, sends exact integer cents, and does not copy a pending link.')
  }
  controls.shareHistory=[]

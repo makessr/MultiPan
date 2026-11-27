@@ -105,7 +105,7 @@ async function cancel(){
    <p v-if="info.lastCheck">上次检查 {{new Date(info.lastCheck).toLocaleString()}}</p>
    <p v-if="info.checkError&&!error" class="banner error" role="alert">{{info.checkError}}</p>
   </template>
-  <p v-if="running" role="status">{{running==='check'?'正在核对发布清单…':running==='install'?'确认后将重新核对安装包并打开安装器。':'选择保存目录后，程序将下载并核对安装包摘要和 Windows 数字签名。'}}</p>
+  <p v-if="running" role="status">{{running==='check'?'正在核对发布清单…':running==='install'?'确认后将重新核对安装包并打开安装器。':'选择保存目录后，将自动选择线路下载并验签。'}}</p>
   <p v-if="message" role="status">{{message}}</p>
   <p v-if="savedPath&&savedVersion===info?.version" role="status" class="transfer-local-path">安装包摘要和 Windows 数字签名已核对，已保存到 {{savedPath}}</p>
   <p v-if="error" class="banner error" role="alert">{{error}}</p>

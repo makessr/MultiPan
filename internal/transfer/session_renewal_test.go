@@ -298,12 +298,13 @@ func TestSessionRenewalBusyAndDueGuards(t *testing.T) {
 	original := http.DefaultTransport
 	http.DefaultTransport = renewalNoNetwork{t}
 	defer func() { http.DefaultTransport = original }()
-	for _, mode := range []string{"upload", "download", "legacy", "account-check", "search", "mutation"} {
+	for _, mode := range []string{"upload", "download", "legacy", "account-check", "search", "relay-source", "relay-target", "mutation"} {
 		t.Run(mode, func(t *testing.T) {
 			m.mu.Lock()
 			m.tasks = nil
 			m.downloads = nil
 			m.downloadImmediate = false
+			m.relays = nil
 			m.accountCheck = nil
 			m.search = nil
 			delete(m.renaming, "a")
@@ -318,6 +319,10 @@ func TestSessionRenewalBusyAndDueGuards(t *testing.T) {
 				m.accountCheck = &accountCheck{running: true, scopes: map[string]string{"a": "scope"}, cancel: func() {}}
 			case "search":
 				m.search = &cloudSearch{running: true, scopes: map[string]string{"a": "scope"}, cancel: func() {}}
+			case "relay-source":
+				m.relays = []diskRelay{{Job: RelayJob{State: "queued"}, Input: RelayInput{SourceAccountID: "a"}}}
+			case "relay-target":
+				m.relays = []diskRelay{{Job: RelayJob{State: "queued"}, Input: RelayInput{TargetAccountID: "a"}}}
 			case "mutation":
 				m.renaming["a"] = true
 			}
@@ -334,6 +339,7 @@ func TestSessionRenewalBusyAndDueGuards(t *testing.T) {
 	m.tasks = nil
 	m.downloads = nil
 	m.downloadImmediate = false
+	m.relays = nil
 	m.accountCheck = nil
 	m.search = nil
 	m.renaming = map[string]bool{}

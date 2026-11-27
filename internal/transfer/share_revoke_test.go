@@ -488,3 +488,164 @@ func TestQuarkShareRevocationRejectsInconsistentPages(t *testing.T) {
 		})
 	}
 }
+
+func TestRevokePreviousShareKeepsReplacement(t *testing.T) {
+	for _, mode := range []string{"success", "missing-new", "expired-new", "same-link", "changed-old", "pending"} {
+		t.Run(mode, func(t *testing.T) {
+			m, err := NewManager(filepath.Join(t.TempDir(), "state.enc"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Close()
+			const priorURL = "https://pan.quark.cn/s/old"
+			a := Account{ID: "account", Kind: "quark", Endpoint: QuarkAPI, Secret: "fixture"}
+			m.accounts = []Account{a}
+			for _, handle := range []string{"old", "new"} {
+				op := &shareOperation{
+					in:    ShareInput{AccountID: a.ID, ParentID: "0", EntryID: "file", Name: "photo", Action: "create"},
+					scope: downloadScope(a), key: handle, share: "id-" + handle, created: time.Now(),
+					result: ShareResult{ID: handle, Kind: a.Kind, State: "ready", URL: "https://pan.quark.cn/s/" + handle},
+				}
+				if handle == "new" {
+					op.recreatedFrom = "old"
+					if mode == "same-link" {
+						op.result.URL = priorURL
+					}
+				}
+				op.saved = snapshotShare(op)
+				m.shares[handle] = op
+			}
+			rows := m.ShareHistory()
+			offer := false
+			for _, row := range rows {
+				offer = offer || row.Result.ID == "new" && row.PreviousShareURL == priorURL
+			}
+			if offer != (mode != "same-link") {
+				t.Fatal("incorrect replacement offer", rows)
+			}
+			var mu sync.Mutex
+			posts := 0
+			stillOld, failRead := true, false
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/1/clouddrive/share/mypage/detail":
+					if failRead {
+						w.WriteHeader(503)
+						return
+					}
+					var shares []map[string]any
+					if mode != "missing-new" {
+						row := map[string]any{"share_id": "id-new", "title": "photo", "share_url": "https://pan.quark.cn/s/new"}
+						if mode == "expired-new" {
+							row["expired_at"] = 1
+						}
+						shares = append(shares, row)
+					}
+					if stillOld {
+						link := priorURL
+						if mode == "changed-old" {
+							link = "https://pan.quark.cn/s/not-old"
+						}
+						shares = append(shares, map[string]any{"share_id": "id-old", "title": "photo", "share_url": link})
+					}
+					json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"list": shares}})
+				case "/1/clouddrive/share/delete":
+					posts++
+					var request struct{ IDs []string }
+					var raw map[string][]string
+					_ = json.NewDecoder(r.Body).Decode(&raw)
+					request.IDs = raw["share_ids"]
+					if len(request.IDs) != 1 || request.IDs[0] != "id-old" {
+						t.Error("attempted to revoke something other than the old link", request)
+					}
+					stillOld, failRead = false, mode == "pending"
+					fmt.Fprint(w, "{\"code\":0}")
+				default:
+					t.Error("unexpected endpoint", r.URL.Path)
+					w.WriteHeader(404)
+				}
+			}))
+			defer server.Close()
+			transport := server.Client().Transport.(*http.Transport).Clone()
+			transport.Proxy = nil
+			transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+			}
+			transport.TLSClientConfig.ServerName = server.Certificate().DNSNames[0]
+			before := http.DefaultTransport
+			http.DefaultTransport = transport
+			defer func() { http.DefaultTransport = before }()
+			got, err := m.RevokePreviousShare(context.Background(), a.ID, "new", priorURL)
+			if mode != "success" && mode != "pending" {
+				if err == nil || posts != 0 {
+					t.Fatal("unconfirmed replacement let a write through", got, err, posts)
+				}
+				return
+			}
+			if err != nil || posts != 1 {
+				t.Fatal(got, err, posts)
+			}
+			if mode == "pending" {
+				if got.State != "unknown" {
+					t.Fatal(got)
+				}
+				reopened, err := NewManager(m.path, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer reopened.Close()
+				var linked *ShareRevocationResult
+				for _, row := range reopened.ShareHistory() {
+					if row.Result.ID == "new" {
+						linked = row.PreviousRevocation
+						if row.PreviousShareURL != "" {
+							t.Fatal("unknown revocation offered another write")
+						}
+					}
+				}
+				if linked == nil || linked.ID != got.ID || linked.State != "unknown" || !linked.CanCheck {
+					t.Fatalf("reopened replacement cannot check its original revocation: %+v", linked)
+				}
+				if _, err := m.RevokePreviousShare(context.Background(), a.ID, "new", priorURL); err == nil || posts != 1 {
+					t.Fatal("uncertain old link was submitted again", err, posts)
+				}
+				mu.Lock()
+				failRead = false
+				mu.Unlock()
+				got, err = m.CheckShareRevocation(context.Background(), got.ID)
+			}
+			if err != nil || got.State != "confirmed" || posts != 1 {
+				t.Fatal(got, err, posts)
+			}
+			restored, err := NewManager(m.path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer restored.Close()
+			if restored.shares["new"].recreatedFrom != "old" || restored.shares["new"].result.State != "ready" {
+				t.Fatal("replacement receipt did not survive restart")
+			}
+			found := false
+			for _, row := range restored.ShareHistory() {
+				if row.Result.ID == "new" && row.PreviousRevocation != nil {
+					found = row.PreviousRevocation.ID == got.ID && row.PreviousRevocation.State == "confirmed" && !row.PreviousRevocation.CanCheck
+				}
+				if row.Result.ID == "old" && !row.KeepForReplacement {
+					t.Fatal("confirmed revocation lost its retained source")
+				}
+			}
+			if !found {
+				t.Fatal("confirmed revocation not visible after restart")
+			}
+			restored.accounts[0].Secret = "different-source"
+			for _, row := range restored.ShareHistory() {
+				if row.PreviousRevocation != nil {
+					t.Fatal("changed account scope exposed an old revocation")
+				}
+			}
+		})
+	}
+}

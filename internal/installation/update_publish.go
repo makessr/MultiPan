@@ -12,9 +12,9 @@ import (
 
 // SignUpdateManifest builds the signed update description from complete
 // installer bytes. The caller supplies the installer and the release key.
-func SignUpdateManifest(asset io.Reader, filename, version string, published time.Time, validity time.Duration, key ed25519.PrivateKey) ([]byte, []byte, error) {
+func SignUpdateManifest(asset io.Reader, filename, version, arch string, published time.Time, validity time.Duration, key ed25519.PrivateKey) ([]byte, []byte, error) {
 	if len(key) != ed25519.PrivateKeySize || !validVersion(version) ||
-		filename != updateInstallerName(version) || published.IsZero() ||
+		!SupportedUpdateArchitecture(arch) || filename != updateInstallerName(version, arch) || published.IsZero() ||
 		validity <= 0 || validity > maxUpdateValidity {
 		return nil, nil, errors.New("更新签名需要有效发布密钥、版本、安装包名和有效期")
 	}
@@ -25,7 +25,7 @@ func SignUpdateManifest(asset io.Reader, filename, version string, published tim
 	}
 	published = published.UTC()
 	m := updateManifest{
-		Format: 1, Version: version, Platform: "windows-x64",
+		Format: 1, Version: version, Platform: InstallerPlatform(arch),
 		Published: published, Expires: published.Add(validity),
 		Asset: filename, Size: size, SHA256: hex.EncodeToString(digest.Sum(nil)),
 	}

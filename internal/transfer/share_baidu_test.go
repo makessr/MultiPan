@@ -51,7 +51,7 @@ func TestBaiduShareValidation(t *testing.T) {
 }
 
 func TestBaiduShareCreateAndCheckOnly(t *testing.T) {
-	for _, mode := range []string{"normal", "folder", "permanent", "day1", "source-changed", "lost-create", "missing-id", "missing-link", "wrong-create-password", "wrong-detail-password", "lost-detail", "foreign-link", "expired", "wrong-source", "public", "missing-settings", "missing-list", "empty-object", "pagination", "session-failed", "pwd-only", "channel-private", "channel-public"} {
+	for _, mode := range []string{"normal", "folder", "permanent", "day1", "source-changed", "recreate-replaced", "lost-create", "missing-id", "missing-link", "wrong-create-password", "wrong-detail-password", "lost-detail", "foreign-link", "expired", "wrong-source", "public", "missing-settings", "missing-list", "empty-object", "pagination", "session-failed", "pwd-only", "channel-private", "channel-public"} {
 		t.Run(mode, func(t *testing.T) {
 			creates, recordReads, details := 0, 0, 0
 			in := ShareInput{ParentID: "/备份", EntryID: "/备份/中文 +.zip", Name: "中文 +.zip", Password: "A1b2", Days: 7, Action: "create", Folder: mode == "folder"}
@@ -169,8 +169,17 @@ func TestBaiduShareCreateAndCheckOnly(t *testing.T) {
 				}
 			})}
 			a := Account{Kind: "baidu", Endpoint: BaiduAPI, Secret: "BDUSS=fixture"}
+			if mode == "recreate-replaced" {
+				in.expectedBaiduSources = "9007199254740993122"
+			}
 			op := &shareOperation{in: in}
 			first := shareBaidu(context.Background(), client, a, op, false)
+			if mode == "recreate-replaced" {
+				if creates != 0 || first.State != "failed" || op.baiduSource != "" {
+					t.Fatal("replacement accepted for original receipt", first)
+				}
+				return
+			}
 			if mode == "session-failed" || mode == "source-changed" {
 				if creates != 0 || first.State == "ready" {
 					t.Fatal(first)

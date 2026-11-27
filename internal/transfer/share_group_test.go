@@ -59,7 +59,7 @@ func TestShareCreationBatchPreflightRejectsMissingTargetWithoutWriting(t *testin
 }
 
 func Test123CombinedShareScopePersistenceAndOverlap(t *testing.T) {
-	for _, mode := range []string{"ready", "missing-source", "unknown"} {
+	for _, mode := range []string{"ready", "missing-source", "unknown", "recreate", "recreate-lost"} {
 		t.Run(mode, func(t *testing.T) {
 			creates := 0
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +78,7 @@ func Test123CombinedShareScopePersistenceAndOverlap(t *testing.T) {
 					if body["fileIdList"] != "11,22" || body["fileNum"] != float64(2) || r.Method != "POST" {
 						t.Error("not one exact group", body)
 					}
-					if mode == "unknown" {
+					if mode == "unknown" || mode == "recreate-lost" && creates > 1 {
 						w.WriteHeader(503)
 						return
 					}
@@ -122,6 +122,49 @@ func Test123CombinedShareScopePersistenceAndOverlap(t *testing.T) {
 			}
 			if mode == "ready" && result.State != "ready" || mode == "unknown" && result.State != "unknown" {
 				t.Fatal(result)
+			}
+			if mode == "recreate" || mode == "recreate-lost" {
+				if result.State != "ready" {
+					t.Fatal("original receipt must be ready", result)
+				}
+				source, err := m.CreatedShareSourceLocation("a", result.ID)
+				if err != nil || source.Recreation == nil || creates != 1 {
+					t.Fatal("preparing recreation must not create a share", source, err)
+				}
+				attempt := source.Recreation.AttemptID
+				subset := in
+				subset.Targets = nil
+				if _, err := m.RecreateShare(context.Background(), result.ID, attempt, subset); err == nil || creates != 1 {
+					t.Fatal("recreation accepted a partial original share", err)
+				}
+				newResult, err := m.RecreateShare(context.Background(), result.ID, attempt, in)
+				if err != nil || newResult.ID == result.ID || creates != 2 {
+					t.Fatal("recreation did not submit the original set once", newResult, err, creates)
+				}
+				want := "ready"
+				if mode == "recreate-lost" {
+					want = "unknown"
+					blocked, err := m.RecreateShare(context.Background(), result.ID, newID(), in)
+					if err != nil || blocked.ID != newResult.ID || blocked.State != "unknown" || creates != 2 {
+						t.Fatal("another dialog replayed an uncertain creation", blocked, err, creates)
+					}
+				} else if newResult.URL != result.URL || newResult.Message != "网盘返回了原分享链接，请以此链接和当前显示的设置为准" {
+					t.Fatal("provider reused the link without informing the user", newResult)
+				}
+				if newResult.State != want {
+					t.Fatal(newResult)
+				}
+				m.Close()
+				m, err = NewManager(m.path, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				in.Password = "AB12"
+				again, err := m.RecreateShare(context.Background(), result.ID, attempt, in)
+				if err != nil || again.ID != newResult.ID || again.State != want || creates != 2 {
+					t.Fatal("attempt id did not prevent replay after restart", again, err, creates)
+				}
+				return
 			}
 			m.Close()
 			m, err = NewManager(m.path, nil)

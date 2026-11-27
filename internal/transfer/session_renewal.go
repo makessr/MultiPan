@@ -204,6 +204,11 @@ func (m *Manager) renewalBusyLocked(id string) bool {
 			return true
 		}
 	}
+	for _, job := range m.relays {
+		if job.Job.State == "queued" && (job.Input.SourceAccountID == id || job.Input.TargetAccountID == id) {
+			return true
+		}
+	}
 	if m.accountCheck != nil && m.accountCheck.running && m.accountCheck.scopes[id] != "" {
 		return true
 	}

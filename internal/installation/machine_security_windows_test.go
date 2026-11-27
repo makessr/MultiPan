@@ -37,7 +37,7 @@ func TestMachineSecurityDescriptorPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatal("invalid test descriptor", err)
 			}
-			_, err = p.descriptor(sd, true, machineMutationMask)
+			_, err = p.descriptor(sd, true, false, machineMutationMask)
 			if (err == nil) != tc.valid {
 				t.Fatal("ACL policy mismatch", tc.valid, err)
 			}
@@ -50,7 +50,7 @@ func TestMachineSecurityDescriptorPolicy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = p.descriptor(sd, true, machineMutationMask); err == nil {
+		if _, err = p.descriptor(sd, true, false, machineMutationMask); err == nil {
 			t.Fatalf("ordinary mutation accepted: %x", mask)
 		}
 	}
@@ -229,5 +229,28 @@ func TestMachineSecurityBoundariesAndOwner(t *testing.T) {
 	known, candidate, err := knownMachineDirectory() // Known Folder lookup only; no audit/write there
 	if err != nil || !sameLocation(candidate, filepath.Join(known, "MultiPan")) {
 		t.Fatal("known folder resolution", err)
+	}
+}
+
+func TestMachineSecurityChecksEffectiveAncestorPermissions(t *testing.T) {
+	floor, base, dir, policy, safe := machineSecurityFixture(t)
+	setFixtureDACL(t, floor, safe+"(A;OICIIO;GW;;;AU)")
+	setFixtureDACL(t, base, safe+"(A;OICIIO;GA;;;CO)")
+	snapshot, err := captureMachineSecurityAtFloor(base, dir, policy, floor)
+	if err != nil {
+		t.Fatal("inherit-only ancestor ACEs blocked a protected installation", err)
+	}
+	if err = snapshot.Check(); err != nil {
+		t.Fatal("snapshot recheck disagreed with first audit", err)
+	}
+
+	setFixtureDACL(t, base, safe+"(A;OICIIO;GA;;;CO)(A;;0x2;;;AU)")
+	if _, err = captureMachineSecurityAtFloor(base, dir, policy, floor); err == nil {
+		t.Fatal("effective child creation on Program Files equivalent was allowed")
+	}
+	setFixtureDACL(t, base, safe+"(A;OICIIO;GA;;;CO)")
+	setFixtureDACL(t, dir, safe+"(A;OICIIO;GW;;;AU)")
+	if _, err = captureMachineSecurityAtFloor(base, dir, policy, floor); err == nil {
+		t.Fatal("managed directory allowed a write grant on descendants")
 	}
 }

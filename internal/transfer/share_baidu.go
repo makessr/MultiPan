@@ -47,6 +47,9 @@ func shareBaidu(ctx context.Context, client *http.Client, a Account, op *shareOp
 		return unknown("百度原分享项目集合已变化，未提交新的分享 [SHARE-BD/source-id]")
 	}
 	if !checkOnly {
+		if op.in.expectedBaiduSources != "" && source != op.in.expectedBaiduSources {
+			return ShareResult{State: "failed", Message: "百度原分享项目已被替换，未提交创建请求"}
+		}
 		op.baiduSource = source
 		if op.saveCheckpoint() != nil {
 			return shareStorageUnknown()

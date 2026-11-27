@@ -36,25 +36,32 @@ func (s *ScopedSandbox) installProtectedMachine(b Bundle, self []byte, opts Opti
 	if err != nil {
 		return err
 	}
-	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	opts.protected, err = s.protectedMachine(layout)
 	if err != nil {
 		return err
+	}
+	return s.Install(ScopeMachine, b, self, opts)
+}
+
+func (s *ScopedSandbox) protectedMachine(layout SandboxLayout) (*protectedMachineInstall, error) {
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return nil, err
 	}
 	sid := user.User.Sid.String()
 	directorySD, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;" + sid + ")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fileSD, err := windows.SecurityDescriptorFromString("D:P(A;;FA;;;" + sid + ")(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;BU)")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	opts.protected = &protectedMachineInstall{
+	return &protectedMachineInstall{
 		base: filepath.Dir(layout.Directory), floor: s.root,
 		policy:      sandboxMachinePolicy(sid),
 		directorySD: directorySD, fileSD: fileSD,
-	}
-	return s.Install(ScopeMachine, b, self, opts)
+	}, nil
 }
 
 func sandboxMachinePolicy(sid string) machineSecurityPolicy {
@@ -108,7 +115,7 @@ func openPinnedDirectoryWithAccess(path string, access uint32) (windows.Handle, 
 	return h, nil
 }
 
-func (p *protectedMachineInstall) prepare(dir string) error {
+func (p *protectedMachineInstall) prepare(dir string, create bool) error {
 	p.dir = dir
 	p.pinned = make(map[string]windows.Handle)
 	p.staged = make(map[string]machineNodeSnapshot)
@@ -127,7 +134,7 @@ func (p *protectedMachineInstall) prepare(dir string) error {
 	if err = before.Check(); err != nil {
 		return err
 	}
-	if _, err = os.Lstat(dir); os.IsNotExist(err) {
+	if _, err = os.Lstat(dir); create && os.IsNotExist(err) {
 		if err = p.createDirectory(dir); err != nil {
 			return err
 		}

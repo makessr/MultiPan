@@ -285,15 +285,13 @@ func TestRelayMoveRestoreAndEligibility(t *testing.T) {
 	if !relayMoveEligible(native) {
 		t.Fatal("verified 123 file with a provider MD5 must be eligible")
 	}
-	for _, mode := range []string{"unverified", "folder", "child", "native", "weak", "no-copy-checkpoint"} {
+	for _, mode := range []string{"unverified", "folder", "native", "weak", "no-copy-checkpoint"} {
 		d := base
 		switch mode {
 		case "unverified":
 			d.Job.State = "paused"
 		case "folder":
 			d.Folder = true
-		case "child":
-			d.ParentJobID = "parent"
 		case "native":
 			d.SourceKind = "pan123"
 		case "weak":
@@ -331,7 +329,7 @@ func TestRelayMoveRestoreAndEligibility(t *testing.T) {
 			t.Fatal("unsubmitted move auto resumed")
 		}
 		if mode == "confirmed" {
-			for _, bad := range []string{"no-ack", "no-submit", "wrong-state", "native", "folder", "child", "no-date"} {
+			for _, bad := range []string{"no-ack", "no-submit", "wrong-state", "native", "folder", "no-date"} {
 				x := d
 				switch bad {
 				case "no-ack":
@@ -344,8 +342,6 @@ func TestRelayMoveRestoreAndEligibility(t *testing.T) {
 					x.SourceKind = "pan123"
 				case "folder":
 					x.Folder = true
-				case "child":
-					x.ParentJobID = "parent"
 				case "no-date":
 					x.Move.Created = time.Time{}
 				}
@@ -475,6 +471,118 @@ func TestRelayQuarkMoveReceipts(t *testing.T) {
 	}
 }
 
+func TestRelayBaiduMoveReceipts(t *testing.T) {
+	const content, name, original, id = "verified data", "item.txt", "/source/item.txt", "90071992547409931"
+	for _, mode := range []string{"success", "changed-bytes", "changed-id", "duplicate-path", "missing-ack", "wrong-recycle-id"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := context.Background()
+			m, err := NewManager(filepath.Join(t.TempDir(), "state.enc"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Close()
+			a := Account{ID: "baidu-source", Kind: "baidu", Endpoint: BaiduAPI, Secret: "BDUSS=fixture"}
+			b := Account{ID: "backup", Kind: "webdav", Endpoint: "https://dav.example.com", Username: "backup", Secret: "fixture"}
+			m.accounts = []Account{a, b}
+			d := diskRelay{
+				SourceKind: a.Kind, TargetKind: b.Kind, SourceScope: downloadScope(a), TargetScope: downloadScope(b),
+				Input: RelayInput{SourceAccountID: a.ID, TargetAccountID: b.ID, ParentID: "/source", EntryID: original,
+					DestinationID: "/backup", Name: name, Size: int64(len(content))},
+				ETag: fmt.Sprintf("%s:%x", id, md5.Sum([]byte(content))), Submitted: true,
+				Job: RelayJob{ID: strings.Repeat("a", 32), State: "verified", SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(content)))},
+			}
+			if !relayMoveEligible(d) {
+				t.Fatal("verified independent Baidu origin is not eligible")
+			}
+			d.Job.State = "moving"
+			d.Move = diskRelayMove{State: "working", Created: time.Now()}
+			m.relays = []diskRelay{d}
+			dir := filepath.Join(m.relayRoot(), d.Job.ID)
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			for file, data := range map[string]string{".owner": "multipan-relay-v1:" + d.Job.ID, "data.bin": content} {
+				if err := os.WriteFile(filepath.Join(dir, file), []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			writes, sourceReads := 0, 0
+			row := func(fileID string) map[string]any {
+				return map[string]any{"fs_id": json.Number(fileID), "path": original, "server_filename": name, "isdir": 0,
+					"size": len(content), "md5": fmt.Sprintf("%x", md5.Sum([]byte(content)))}
+			}
+			client := &http.Client{Transport: quarkTransport(func(r *http.Request) (*http.Response, error) {
+				switch r.URL.Host + r.URL.Path {
+				case "dav.example.com/backup/item.txt":
+					return quarkResponse(content, nil), nil
+				case "d.pcs.baidu.com/content":
+					sourceReads++
+					if mode == "changed-bytes" {
+						return quarkResponse(strings.Repeat("x", len(content)), nil), nil
+					}
+					return quarkResponse(content, nil), nil
+				case "pan.baidu.com/api/gettemplatevariable":
+					return quarkResponse(`{"errno":0,"result":{"bdstoken":"fixture-token"}}`, nil), nil
+				case "pan.baidu.com/api/list":
+					rows := []map[string]any{}
+					if writes == 0 {
+						fileID := id
+						if mode == "changed-id" && sourceReads > 0 {
+							fileID = "90071992547409932"
+						}
+						rows = append(rows, row(fileID))
+						if mode == "duplicate-path" && sourceReads > 0 {
+							rows = append(rows, row("90071992547409932"))
+						}
+					}
+					return quarkResponse(baiduMoveFixtureRows(rows), nil), nil
+				case "pan.baidu.com/api/filemetas":
+					return quarkResponse(fmt.Sprintf(`{"errno":0,"info":[{"fs_id":%s,"path":%q,"size":%d,"dlink":"https://d.pcs.baidu.com/content"}]}`, id, original, len(content)), nil), nil
+				case "pan.baidu.com/api/filemanager":
+					writes++
+					err := r.ParseForm()
+					if r.Method != http.MethodPost || err != nil || r.URL.Query().Get("opera") != "delete" ||
+						r.Form.Get("filelist") != `["/source/item.txt"]` {
+						t.Error("incorrect Baidu recycle submission", r.Method, err)
+					}
+					saved, err := readState(m.path)
+					if err != nil || len(saved.Relays) != 1 || !saved.Relays[0].Move.Submitted {
+						t.Error("Baidu recycle submission lacks durable write checkpoint", err)
+					}
+					if mode == "missing-ack" {
+						return nil, fmt.Errorf("lost response")
+					}
+					return quarkResponse(`{"errno":0}`, nil), nil
+				case "pan.baidu.com/api/recycle/list":
+					fileID := id
+					if mode == "wrong-recycle-id" {
+						fileID = "90071992547409933"
+					}
+					return quarkResponse(baiduMoveFixtureRows([]map[string]any{row(fileID)}), nil), nil
+				default:
+					return nil, fmt.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+			})}
+			err = m.performRelayMove(ctx, client, a, b, d, m.relayRoot(), false)
+			noWrite := mode == "changed-bytes" || mode == "changed-id" || mode == "duplicate-path"
+			if (mode == "success") != (err == nil) || noWrite != (writes == 0) {
+				t.Fatalf("move outcome: mode=%s writes=%d err=%v", mode, writes, err)
+			}
+			if !noWrite {
+				err = m.performRelayMove(ctx, client, a, b, m.relays[0], m.relayRoot(), true)
+				if (mode == "success") != (err == nil) || writes != 1 {
+					t.Fatalf("check replayed the delete or accepted an unconfirmed receipt: writes=%d err=%v", writes, err)
+				}
+			}
+		})
+	}
+}
+
+func baiduMoveFixtureRows(rows []map[string]any) string {
+	b, _ := json.Marshal(map[string]any{"errno": 0, "list": rows, "total": len(rows)})
+	return string(b)
+}
+
 func TestRelayMoveNativeTargetReadback(t *testing.T) {
 	for _, kind := range []string{"pan123", "baidu"} {
 		t.Run(kind, func(t *testing.T) {
@@ -539,5 +647,21 @@ func TestRelayMoveNativeTargetReadback(t *testing.T) {
 				t.Fatal("corrupt backup accepted")
 			}
 		})
+	}
+}
+
+func TestRelayBatchMoveRejectsCrossedDAVPaths(t *testing.T) {
+	a := Account{Kind: "webdav", Endpoint: "https://example.test"}
+	b := Account{Kind: "ctdav", Endpoint: "https://example.test/archive"}
+	rows := []diskRelay{
+		{Input: RelayInput{EntryID: "/inbox/file.txt", DestinationID: "/", Name: "file.txt"}},
+		{Input: RelayInput{EntryID: "/archive/file.txt", DestinationID: "/second", Name: "file.txt"}},
+	}
+	if !relayMoveOverlaps(a, b, rows) {
+		t.Fatal("one planned source also being another item's retained target must block the batch")
+	}
+	rows[1].Input.EntryID = "/unrelated/file.txt"
+	if relayMoveOverlaps(a, b, rows) {
+		t.Fatal("different resource paths across one host should remain eligible")
 	}
 }

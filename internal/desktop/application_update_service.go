@@ -38,7 +38,7 @@ func (s *DesktopService) readApplicationUpdateChannel() (ApplicationUpdateInfo, 
 		return ApplicationUpdateInfo{}, "", nil
 	}
 	info := ApplicationUpdateInfo{CurrentVersion: version}
-	if runtime.GOARCH != "amd64" {
+	if !installation.SupportedUpdateArchitecture(runtime.GOARCH) {
 		return info, "", nil
 	}
 	var channel applicationUpdateChannel
@@ -87,7 +87,7 @@ func (s *DesktopService) checkApplicationUpdate(parent context.Context, automati
 	s.updates.mu.Lock()
 	s.updates.lastAttempt = time.Now()
 	s.updates.mu.Unlock()
-	verified, err := installation.CheckUpdateOrigin(ctx, origin, publisher, info.CurrentVersion)
+	verified, err := installation.CheckUpdateOrigin(ctx, origin, publisher, info.CurrentVersion, runtime.GOARCH)
 	if errors.Is(err, installation.ErrSameUpdateVersion) {
 		err = nil
 	}

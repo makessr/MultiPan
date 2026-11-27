@@ -236,8 +236,11 @@ func (m *Manager) queueRelayDirectory(ctx context.Context, in RelayInput, snapsh
 				return fmt.Errorf("源文件“%s”大小 %s，超过单文件8 GiB上限，整棵目录未创建", fileName, relaySizeLabel(*r.Size))
 			}
 			if snapshot {
-				if !relaySnapshotEligible(a.Kind, r) || total+*r.Size > relaySnapshotMaxBatch {
-					return fmt.Errorf("源文件“%s”缺少预读所需版本或超过单文件 2 GiB、目录合计 4 GiB 的限制，整棵目录未创建", fileName)
+				if total+*r.Size > relaySnapshotMaxBatch {
+					return fmt.Errorf("源文件“%s”大小 %s，超过预读目录合计 16 GiB 的限制，整棵目录未创建", fileName, relaySizeLabel(*r.Size))
+				}
+				if !relaySnapshotEligible(a.Kind, r) {
+					return fmt.Errorf("源文件“%s”缺少预读所需的身份或版本，整棵目录未创建", fileName)
 				}
 				version = r.revision
 			} else if !validRelayVersion(a.Kind, version) {

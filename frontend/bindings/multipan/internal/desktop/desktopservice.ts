@@ -149,6 +149,10 @@ export function ClearSavedDownloadHistory(): $CancellablePromise<void> {
     return $Call.ByID(4282691295);
 }
 
+export function ClearSelectedCloudShareHistory(ids: string[] | null): $CancellablePromise<number> {
+    return $Call.ByID(2328978573, ids);
+}
+
 export function CloudCopyHistory(accountID: string): $CancellablePromise<transfer$0.CopyReceipt[] | null> {
     return $Call.ByID(1316248933, accountID);
 }
@@ -293,6 +297,10 @@ export function LocateCloudRecycleRestore(accountID: string, receiptID: string):
     return $Call.ByID(2280306565, accountID, receiptID);
 }
 
+export function LocateCreatedShareSource(accountID: string, receiptID: string): $CancellablePromise<transfer$0.ShareSourceLocation> {
+    return $Call.ByID(872388033, accountID, receiptID);
+}
+
 export function LocateLanzouShareReceipt(accountID: string, receiptID: string): $CancellablePromise<transfer$0.LanzouShareLocation> {
     return $Call.ByID(1393221701, accountID, receiptID);
 }
@@ -351,6 +359,10 @@ export function MoveCloudFolder($in: transfer$0.MoveFileInput): $CancellableProm
 
 export function MoveCloudRelay(id: string, confirmation: string): $CancellablePromise<void> {
     return $Call.ByID(1051327810, id, confirmation);
+}
+
+export function MoveCloudRelays(ids: string[] | null, folderID: string, confirmation: string): $CancellablePromise<void> {
+    return $Call.ByID(3600389155, ids, folderID, confirmation);
 }
 
 export function MoveConfirmedRestoredFile(accountID: string, receiptID: string, destination: string): $CancellablePromise<void> {
@@ -500,6 +512,10 @@ export function ReadManagedQuarkShareRestrictions(handle: string): $CancellableP
     return $Call.ByID(769347492, handle);
 }
 
+export function RecreateCloudShare(receiptID: string, attemptID: string, $in: transfer$0.ShareInput): $CancellablePromise<transfer$0.ShareResult> {
+    return $Call.ByID(2573188856, receiptID, attemptID, $in);
+}
+
 export function RenameCloudEntry($in: transfer$0.RenameInput): $CancellablePromise<transfer$0.CloudEntry> {
     return $Call.ByID(46064996, $in);
 }
@@ -546,6 +562,10 @@ export function RetryFailedUploads(ids: string[] | null): $CancellablePromise<tr
 
 export function RevokeManagedCloudShare(handle: string): $CancellablePromise<transfer$0.ShareRevocationResult> {
     return $Call.ByID(1124599308, handle);
+}
+
+export function RevokePreviousCloudShare(accountID: string, replacementID: string, expectedURL: string): $CancellablePromise<transfer$0.ShareRevocationResult> {
+    return $Call.ByID(2150327618, accountID, replacementID, expectedURL);
 }
 
 export function SaveAccount($in: transfer$0.AccountInput): $CancellablePromise<transfer$0.Account> {

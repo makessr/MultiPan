@@ -63,12 +63,30 @@ export async function EnqueueReviewedUploads(files:any[],targets:any[],skips:any
 export async function RetryFailedUploads(ids:string[]){return [...new Set(ids)].map(id=>{const t=tasks.find(t=>t.id===id);const applied=t?.status==='failed';if(applied){t.status='queued';t.sent=0;t.message='模拟重试请求已提交'}return {id,name:t?.file.relativePath||t?.file.name||'',applied,message:applied?'重试请求已提交':'当前状态未提交'}})}
 
 const previewShares=new Map<string,any>();
-export async function ShareCloudEntry(input:any){await delay(300);const a=accounts.find(a=>a.id===input.accountId);const id='preview-share-'+previewShares.size;const result={id,state:'ready',name:input.name,kind:a?.kind,url:a?.kind==='lanzou'?'https://preview.lanzoub.com/iMock':a?.kind==='guangya'?'https://www.guangyapan.com/s/preview-demo':a?.kind==='baidu'?'https://pan.baidu.com/s/1preview-demo':a?.kind==='pan123'?'https://123.share.123pan.cn/123pan/preview-demo':'https://pan.quark.cn/s/preview-demo',password:input.action==='get'?'read':input.password,days:input.days,message:'模拟分享结果，不对应真实分享；没有云端修改',canCheck:true};previewShares.set(id,{...result,accountId:input.accountId,created:new Date().toISOString()});return {...result}}
+export async function ShareCloudEntry(input:any){await delay(300);const a=accounts.find(a=>a.id===input.accountId);const id='preview-share-'+previewShares.size;const result={id,state:'ready',name:input.name,kind:a?.kind,url:a?.kind==='lanzou'?'https://preview.lanzoub.com/iMock':a?.kind==='guangya'?'https://www.guangyapan.com/s/preview-demo':a?.kind==='baidu'?'https://pan.baidu.com/s/1preview-demo':a?.kind==='pan123'?'https://123.share.123pan.cn/123pan/preview-demo':'https://pan.quark.cn/s/preview-demo',password:input.action==='get'?'read':input.password,days:input.days,message:'模拟分享结果，不对应真实分享；没有云端修改',canCheck:true};previewShares.set(id,{...result,accountId:input.accountId,created:new Date().toISOString(),sourceParent:input.action==='create'?input.parentId:undefined,sourceTargets:input.targets??[{id:input.entryId,name:input.name,folder:input.folder}],paidPriceFen123:input.paidPriceFen123});return {...result}}
 export async function CheckCloudShare(id:string){return {...previewShares.get(id),message:'模拟检查原操作结果，没有重新创建'}}
 
-export async function CloudShares(){return [...previewShares.values()].map((r:any)=>({accountId:r.accountId,created:r.created,result:{...r}}))}
+export async function CloudShares(){return [...previewShares.values()].map((r:any)=>({accountId:r.accountId,created:r.created,canOpenSource:!!r.sourceParent,canRecreate:!!r.sourceParent&&r.kind!=='baidu',result:{...r}}))}
 
 export async function ClearCloudShareHistory(){let count=0;for(const [id,result] of previewShares){if(['ready','failed'].includes(result.state)){previewShares.delete(id);count++}}return count}
+export async function ClearSelectedCloudShareHistory(ids:string[]){
+ if(!ids.length||new Set(ids).size!==ids.length||ids.some(id=>!['ready','failed'].includes(previewShares.get(id)?.state??''))){
+  throw Error('所选分享记录已变化，本次未清理。请刷新后重试')
+ }
+ for(const id of ids)previewShares.delete(id)
+ return ids.length
+}
+export async function LocateCreatedShareSource(accountId:string,id:string){
+ const row=previewShares.get(id)
+ if(row?.accountId!==accountId||!row.sourceParent)throw Error('预览数据没有原文件目录')
+ if(row.kind==='baidu')return {accountId,parentId:row.sourceParent}
+ return {accountId,parentId:row.sourceParent,targets:row.sourceTargets,recreation:{receiptId:id,attemptId:crypto.randomUUID(),protected:!!row.password,days:row.days,paidPriceFen123:row.paidPriceFen123}}
+}
+export async function RecreateCloudShare(receiptID:string,_attemptID:string,input:any){
+ const source=previewShares.get(receiptID)
+ if(source?.accountId!==input.accountId||source.sourceParent!==input.parentId)throw Error('预览回执来源已变化')
+ return ShareCloudEntry(input)
+}
 export async function ManagedCloudShares(accountId:string,page:number){const kind=accounts.find(a=>a.id===accountId)?.kind??'quark';return {items:page===1&&!previewRevokedKinds.has(kind)?[{id:'preview-'+kind,name:(kind==='pan123'?'123资料':kind==='baidu'?'百度资料':kind==='guangya'?'光鸭资料':'项目资料')+'.zip',status:'有效性待核对',canRevoke:true,canEdit:kind==='guangya'||kind==='baidu',created:'',expiry:kind==='pan123'?'到期：2099-12-12':'有效期以网盘显示为准'}]:[],page,hasMore:page===1,next:page===1&&kind==='pan123'?'preview-cursor':''}}
 export async function ReadManagedCloudShare(id:string){const kind=id.includes('pan123')?'pan123':id.includes('baidu')?'baidu':id.includes('guangya')?'guangya':'quark';return {name:(kind==='pan123'?'123资料':kind==='baidu'?'百度资料':kind==='guangya'?'光鸭资料':'项目资料')+'.zip',url:kind==='pan123'?'https://www.123pan.com/s/preview':kind==='baidu'?'https://pan.baidu.com/s/preview':kind==='guangya'?'https://www.guangyapan.com/s/preview':'https://pan.quark.cn/s/preview',password:'A1b2',expiry:'有效期以网盘显示为准',message:'模拟读取原分享，没有云端创建或修改'}}
 const previewRevokedKinds=new Set<string>();const previewRevokes:any[]=[];

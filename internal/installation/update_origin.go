@@ -15,8 +15,8 @@ import (
 
 // CheckUpdateOrigin reads signed release metadata from a source configured by
 // the caller. The origin and the publisher key are both trust inputs.
-func CheckUpdateOrigin(ctx context.Context, releaseURL string, trustedPublisher ed25519.PublicKey, installedVersion string) (VerifiedUpdate, error) {
-	if len(trustedPublisher) != ed25519.PublicKeySize || !validVersion(installedVersion) {
+func CheckUpdateOrigin(ctx context.Context, releaseURL string, trustedPublisher ed25519.PublicKey, installedVersion, arch string) (VerifiedUpdate, error) {
+	if len(trustedPublisher) != ed25519.PublicKeySize || !validVersion(installedVersion) || !SupportedUpdateArchitecture(arch) {
 		return VerifiedUpdate{}, errors.New("在线检查需要可信发布公钥和有效的当前版本")
 	}
 	origin, err := url.Parse(releaseURL)
@@ -30,21 +30,31 @@ func CheckUpdateOrigin(ctx context.Context, releaseURL string, trustedPublisher 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	client := updateOriginClient(10 * time.Second)
-	manifest, err := readUpdateOriginFile(ctx, client, origin.JoinPath(UpdateManifestName), maxUpdateManifest)
+	return checkUpdateOrigin(ctx, updateOriginClient(10*time.Second), origin, trustedPublisher, installedVersion, arch)
+}
+
+func checkUpdateOrigin(ctx context.Context, client *http.Client, origin *url.URL, trustedPublisher ed25519.PublicKey, installedVersion, arch string) (VerifiedUpdate, error) {
+	if repo := githubUpdateRepository(origin); repo != "" {
+		return checkGitHubUpdate(ctx, client, origin, repo, trustedPublisher, installedVersion, arch)
+	}
+	manifest, signature := UpdateAssetNames(arch)
+	update, err := checkUpdateAssets(ctx, client, origin.JoinPath(manifest), origin.JoinPath(signature), trustedPublisher, installedVersion, arch)
+	if err == nil {
+		update.origin = origin
+	}
+	return update, err
+}
+
+func checkUpdateAssets(ctx context.Context, client *http.Client, manifestURL, signatureURL *url.URL, trustedPublisher ed25519.PublicKey, installedVersion, arch string) (VerifiedUpdate, error) {
+	manifest, err := readUpdateOriginFile(ctx, client, manifestURL, maxUpdateManifest)
 	if err != nil {
 		return VerifiedUpdate{}, err
 	}
-	signature, err := readUpdateOriginFile(ctx, client, origin.JoinPath(UpdateSignatureName), ed25519.SignatureSize)
+	signature, err := readUpdateOriginFile(ctx, client, signatureURL, ed25519.SignatureSize)
 	if err != nil {
 		return VerifiedUpdate{}, err
 	}
-	update, err := VerifyUpdateManifest(bytes.NewReader(manifest), bytes.NewReader(signature), trustedPublisher, installedVersion, time.Now())
-	if err != nil {
-		return VerifiedUpdate{}, err
-	}
-	update.origin = origin
-	return update, nil
+	return VerifyUpdateManifest(bytes.NewReader(manifest), bytes.NewReader(signature), trustedPublisher, installedVersion, arch, time.Now())
 }
 
 func updateOriginClient(timeout time.Duration) *http.Client {

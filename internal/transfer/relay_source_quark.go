@@ -19,7 +19,7 @@ import (
 func relaySnapshotEligible(kind string, row CloudEntry) bool {
 	return row.ID != "" && !row.Folder && row.Size != nil && *row.Size >= 0 &&
 		*row.Size <= relaySnapshotMaxFile &&
-		(kind == "quark" && validRelayQuarkStamp(row.revision) || kind == "guangya" && row.revision == "")
+		(kind == "quark" && relayQuarkSnapshotStamp(row.revision) != "" || kind == "guangya" && row.revision == "")
 }
 
 type RelayPreflight struct {
@@ -51,7 +51,7 @@ func (m *Manager) updateRelayPreflight(progress RelayPreflight) {
 // The caller holds m.mu and folderMutationMu. Keeping the latter until
 // cleanup prevents one queue request from clearing another snapshot canceler.
 func (m *Manager) beginRelaySnapshotLocked(ctx context.Context) (context.Context, func()) {
-	ctx, cancel := context.WithTimeout(withTransferLimits(ctx, m.limits), 3*time.Hour)
+	ctx, cancel := context.WithTimeout(withTransferLimits(ctx, m.limits), 6*time.Hour)
 	m.relaySnapshotCancel = cancel
 	m.relayPreflight = &RelayPreflight{}
 	return ctx, func() {
@@ -116,7 +116,7 @@ func readRelayQuarkSnapshot(ctx context.Context, client *http.Client, a Account,
 	defer resp.Body.Close()
 	encoding := resp.Header.Get("Content-Encoding")
 	if !relaySnapshotEligible("quark", row) || row.ID != in.EntryID || row.Name != in.Name ||
-		*row.Size != in.Size || row.revision != d.ETag || resp.StatusCode != http.StatusOK ||
+		*row.Size != in.Size || relayQuarkSnapshotStamp(row.revision) != relayQuarkSnapshotStamp(d.ETag) || resp.StatusCode != http.StatusOK ||
 		resp.Uncompressed || (encoding != "" && !strings.EqualFold(encoding, "identity")) ||
 		resp.Header.Get("Content-Range") != "" || (resp.ContentLength >= 0 && resp.ContentLength != in.Size) {
 		return "", errors.New("夸克原件版本、大小或完整响应无法核对，整批未创建")
@@ -125,7 +125,7 @@ func readRelayQuarkSnapshot(ctx context.Context, client *http.Client, a Account,
 	if err != nil {
 		return "", errors.New("夸克原件内容读取不完整，整批未创建")
 	}
-	d.ETag = row.revision + ":" + digest
+	d.ETag = relayQuarkSnapshotStamp(row.revision) + ":" + digest
 	if err := relaySource(ctx, client, a, d); err != nil {
 		return "", errors.New("夸克原件在预读期间变化，整批未创建")
 	}
@@ -143,10 +143,21 @@ func validRelayQuarkStamp(value string) bool {
 	n, e := strconv.ParseInt(value, 10, 64)
 	return e == nil && n > 0 && strconv.FormatInt(n, 10) == value
 }
+func relayQuarkSnapshotStamp(revision string) string {
+	if revision == "" || revision == "0" {
+		// Copy requires a complete content hash even when the API omits the timestamp.
+		return "sha256"
+	}
+	if validRelayQuarkStamp(revision) {
+		return revision
+	}
+	return ""
+}
+
 func validRelayQuarkVersion(value string) bool {
 	stamp, sha := relayQuarkParts(value)
 	b, e := hex.DecodeString(sha)
-	return validRelayQuarkStamp(stamp) && e == nil && len(b) == 32 && sha == strings.ToLower(sha)
+	return (stamp == "sha256" || validRelayQuarkStamp(stamp)) && e == nil && len(b) == 32 && sha == strings.ToLower(sha)
 }
 func relayUsesOriginalPin(kind string) bool { return kind == "quark" || kind == "guangya" }
 func relayPinnedSHA(kind, value string) string {
@@ -186,7 +197,7 @@ func relayQuarkPinnedVersion(account string, row CloudEntry, originals []UploadF
 }
 func relayQuarkMetaMatches(row CloudEntry, d diskRelay) bool {
 	stamp, _ := relayQuarkParts(d.ETag)
-	return validRelayQuarkVersion(d.ETag) && row.ID == d.Input.EntryID && row.Name == d.Input.Name && !row.Folder && row.Size != nil && *row.Size == d.Input.Size && row.revision == stamp
+	return validRelayQuarkVersion(d.ETag) && row.ID == d.Input.EntryID && row.Name == d.Input.Name && !row.Folder && row.Size != nil && *row.Size == d.Input.Size && relayQuarkSnapshotStamp(row.revision) == stamp
 }
 func relayQuarkPage(ctx context.Context, client *http.Client, a Account, parent string) (FilePage, error) {
 	if a.Endpoint != QuarkAPI {

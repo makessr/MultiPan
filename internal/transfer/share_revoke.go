@@ -333,6 +333,11 @@ func (m *Manager) RevokeManagedShare(ctx context.Context, handle string) (ShareR
 	}
 	m.folderMutationMu.Lock()
 	defer m.folderMutationMu.Unlock()
+	return m.revokeManagedShareLocked(ctx, h)
+}
+
+// The caller holds folderMutationMu across preflight and submission.
+func (m *Manager) revokeManagedShareLocked(ctx context.Context, h managedShareHandle) (ShareRevocationResult, error) {
 	m.mu.Lock()
 	a := m.downloadAccountLocked(h.AccountID)
 	if m.closing || !revocationAccountMatches(a, h) {
@@ -348,7 +353,7 @@ func (m *Manager) RevokeManagedShare(ctx context.Context, handle string) (ShareR
 		m.mu.Unlock()
 		return ShareRevocationResult{}, errors.New("撤销回执已达1000项，请先清理已确认回执，未知回执不会自动删除")
 	}
-	if err = m.reserveShareLocked(a.ID); err != nil {
+	if err := m.reserveShareLocked(a.ID); err != nil {
 		m.mu.Unlock()
 		return ShareRevocationResult{}, err
 	}

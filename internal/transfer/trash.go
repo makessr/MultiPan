@@ -57,6 +57,11 @@ func submitPan123Trash(ctx context.Context, client *http.Client, a Account, id s
 	}, nil)
 }
 
+func (c *baiduClient) submitTrash(ctx context.Context, filePath string) error {
+	payload, _ := json.Marshal([]string{filePath})
+	return c.api(ctx, "POST", "filemanager", url.Values{"opera": {"delete"}, "async": {"2"}, "newVerify": {"1"}}, url.Values{"filelist": {string(payload)}}, nil)
+}
+
 func trashProvider(a Account) bool {
 	return trashProviderV1(a) || a.Kind == "lanzou" && a.Endpoint == lanzouRecycleOrigin || a.Kind == "quark" && a.Endpoint == QuarkAPI
 }
@@ -470,8 +475,7 @@ func (m *Manager) TrashEntry(ctx context.Context, handle string) (TrashReceipt, 
 		} else {
 			c := newBaiduClient(client, a)
 			if err = c.session(ctx); err == nil {
-				payload, _ := json.Marshal([]string{s.Input.Entry.ID})
-				_ = c.api(ctx, "POST", "filemanager", url.Values{"opera": {"delete"}, "async": {"2"}, "newVerify": {"1"}}, url.Values{"filelist": {string(payload)}}, nil)
+				_ = c.submitTrash(ctx, s.Input.Entry.ID)
 			}
 		}
 		// Acknowledgements never establish success; only the same ID in recycle does.
