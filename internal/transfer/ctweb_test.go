@@ -179,6 +179,8 @@ func TestCtWebUploadRejectsUnconfirmedReply(t *testing.T) {
 func TestCtWebDownloadURLFallsBackToStream(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/home/workspace/manage/list":
+			io.WriteString(w, `{"code":200,"total":0,"data":[]}`)
 		case "/home/file/browse/fetch-url":
 			io.WriteString(w, `{"code":404,"message":"文件不存在"}`)
 		case "/home/file/browse/stream":
@@ -188,7 +190,7 @@ func TestCtWebDownloadURLFallsBackToStream(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	address, e := ctWebDownloadURL(context.Background(), srv.Client(), ctWebTestAccount(srv.URL), "123")
+	address, e := ctWebDownloadURL(context.Background(), srv.Client(), ctWebTestAccount(srv.URL), "d0", "123")
 	if e != nil {
 		t.Fatalf("download url: %v", e)
 	}
@@ -269,7 +271,7 @@ func TestCtWebListResolvesWorkspaceOnDemand(t *testing.T) {
 	if e != nil {
 		t.Fatalf("list: %v", e)
 	}
-	if workspaceCalls != 1 || listCalls != 3 {
+	if workspaceCalls != 1 || listCalls != 2 {
 		t.Fatalf("unexpected call counts workspace=%d list=%d", workspaceCalls, listCalls)
 	}
 	if len(page.Entries) != 1 || page.Entries[0].Name != "a.txt" {
@@ -318,5 +320,64 @@ func TestCtWebWorkspaceFailureShowsResponse(t *testing.T) {
 	_, e := ListAccountFiles(context.Background(), srv.Client(), ctWebTestAccount(srv.URL), "")
 	if e == nil || !strings.Contains(e.Error(), "无法确定诚通工作空间") || !strings.Contains(e.Error(), "no space") {
 		t.Fatalf("expected workspace error with response preview, got %v", e)
+	}
+}
+
+func TestCtWebMutationsCarryWorkspaceAndWebPayloads(t *testing.T) {
+	var deleted, renamed, created map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		switch r.URL.Path {
+		case "/home/workspace/manage/list":
+			io.WriteString(w, `{"code":200,"total":1,"data":[{"id":7,"is_default":1}]}`)
+			return
+		case "/home/file/manage/delete":
+			deleted = body
+		case "/home/file/manage/rename":
+			renamed = body
+		case "/home/file/manage/create-folder":
+			created = body
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			return
+		}
+		if body["workspace_id"] != float64(7) {
+			io.WriteString(w, `{"code":400,"message":"workspace_id 参数无效"}`)
+			return
+		}
+		if r.URL.Path == "/home/file/manage/create-folder" {
+			io.WriteString(w, `{"code":200,"data":{"folder_id":"d9"}}`)
+			return
+		}
+		io.WriteString(w, `{"code":200}`)
+	}))
+	defer srv.Close()
+	account := ctWebTestAccount(srv.URL)
+	if e := ctWebDelete(context.Background(), srv.Client(), account, "123"); e != nil {
+		t.Fatalf("delete: %v", e)
+	}
+	if e := ctWebRename(context.Background(), srv.Client(), account, "123", "b.txt"); e != nil {
+		t.Fatalf("rename: %v", e)
+	}
+	if _, e := ctWebMkdir(context.Background(), srv.Client(), account, "d0", "资料"); e != nil {
+		t.Fatalf("mkdir: %v", e)
+	}
+	for name, body := range map[string]map[string]any{"delete": deleted, "rename": renamed, "create-folder": created} {
+		if body == nil {
+			t.Fatalf("%s request was not sent", name)
+		}
+		if body["workspace_id"] != float64(7) {
+			t.Fatalf("%s workspace_id = %v, want 7", name, body["workspace_id"])
+		}
+	}
+	if deleted["ids"] != "123" || deleted["force"] != float64(0) {
+		t.Fatalf("unexpected delete payload %v", deleted)
+	}
+	if renamed["id"] != float64(123) || renamed["name"] != "b.txt" || renamed["is_rename"] != float64(1) {
+		t.Fatalf("unexpected rename payload %v", renamed)
+	}
+	if created["folder_id"] != "d0" || created["name"] != "资料" {
+		t.Fatalf("unexpected create payload %v", created)
 	}
 }

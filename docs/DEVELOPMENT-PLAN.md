@@ -6,10 +6,11 @@
 
 - 登录：内嵌 WebView2 打开 `https://my.ctfile.com/login`，用户正常登录后从请求头读取 `Authorization: Bearer <token>`（与蓝奏、夸克共用的登录脚手架 `internal/lanzoulogin`，新增 `RunCtfile`）。密码登录自身需要 altcha 人机验证，所以不在 Go 里直连，只能借网页会话。
 - 接口：`https://api.ctfile.com` 的 `/home/...`，全部 POST JSON。列目录 `/home/file/browse/list`，建目录 `/home/file/manage/create-folder`，改名 `/home/file/manage/rename`，删除 `/home/file/manage/delete`，下载先 `/home/file/browse/fetch-url` 再回落 `stream`，上传先 `/home/file/manage/upload` 拿 `uploadUrl` 再 `PUT` 原始字节（`hash`/`path`/`contentlength` 查询参数，校验返回 `upload complete` 与字节数）。
-- 工作空间：网页端请求普遍带 `workspace_id`。`internal/transfer/ctweb.go` 先不带该字段请求，只有报错提到工作空间时才解析 `/home/workspace/manage/list` 里 `is_default` 的那一项并重试。实测有账号在该接口返回空列表：现在按 `{start:0,pagesize:100}` → `{start:0}` → `{}` 依次尝试，标识字段接受 `id`/`workspace_id`/`ws_id`/`space_id`/`spaceId`/`wid`（数字或数字字符串），并兼容以数字为键的对象；解析仍失败或服务端要求该字段时，先按网页端的「当前空间」值 `workspace_id=0` 重试列目录，再回落到解析出的空间标识，最终报错会带上服务端返回的片段（不超过 200 字）便于定位。
+- 工作空间：网页端请求普遍带 `workspace_id`。`internal/transfer/ctweb.go` 的 `postAdaptive` 按「已记住的值 → `0` → `/home/workspace/manage/list` 里 `is_default` 的那一项 → 不带该字段」逐级重试并记住可用值。实测有账号在该接口返回空列表：现在按 `{start:0,pagesize:100}` → `{start:0}` → `{}` 依次尝试，标识字段接受 `id`/`workspace_id`/`ws_id`/`space_id`/`spaceId`/`wid`（数字或数字字符串），并兼容以数字为键的对象；解析仍失败时最终报错会带上服务端返回的片段（不超过 200 字）便于定位。
 - 登录捕获范围：令牌规则原先只认路径含 `/api/` 的请求，诚通接口全在 `/home/` 下，导致登录成功后窗口不关闭；`allowedTokenRequest` 现在对 `api.ctfile.com` 放开 `/home/` 前缀，并保留 https、host 精确匹配与仿冒域名防护。
 - 重新登录停在「等待登录」：网页端带着缓存会话重新进入时可能不再发带 `Authorization` 的请求，只靠请求头捕获会一直等下去。`runBrowserWithStorage` 在原有捕获之外，每秒用 `ExecuteScript` 读取 `sessionStorage`/`localStorage` 里的 `token`（`ICoreWebView2::ExecuteScript` 在 vtable 第 30 项，`go-webview2` 未导出回调类型，因此自建 COM 回调），两条路径任一条拿到合法令牌即结束；`storageScript` 为空时行为与旧逻辑一致。
 - 上传校验：`checksum` 是文件前 1 MB 的 MD5，与网页端一致；上传完成必须看到 `code==200`、`id>0` 且 `size` 相符，否则报「诚通上传未确认完成」。
+- 写入请求对齐（2026-11-27）：用户实机反馈上传、下载、删除、新建、改名全部失败。对照网页端脚本改成同一套请求体——删除 `{ids:"<fid>",force:0}`，改名 `{id:<数字>,name,is_rename:1}`，新建 `{folder_id,name}`，下载 `{file_id:<数字>,folder_id:<父>,carrier}`，上传初始化 `{folder_id,path,size,checksum,carrier}` 且 `hash` 改为网页端算法 `MD5(checksum + 0 + size + 0 + transferId)`（原先错用文件头 MD5）；这些请求都经 `postAdaptive` 带上 `workspace_id`（`c.ws` → `0` → 解析出的空间 → 最后不带该字段），成功后记住可用值。
 - 范围：`ctweb` 目前接列目录、上传、下载、新建文件夹、改名与账号检查，不参与分享、回收站和跨网盘复制；根目录标识沿用 `d0`。
 - 验证：`internal/transfer/ctweb_test.go` 覆盖目录映射、令牌失效提示、账号名读取、建目录请求体、上传确认与未确认失败、下载回落到 `stream`、目录标识校验；前端类型检查与完整门禁另行记录。真实账号验收需要用户在网页端登录后检查目录、上传与下载。
 
