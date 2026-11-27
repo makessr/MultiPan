@@ -1,0 +1,128 @@
+name: 发布 APT 仓库
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要发布的版本标签，留空则使用最新已发布版本
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apt-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: 生成并部署 APT 仓库
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 解析发布版本
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          tag="$INPUT_TAG"
+          if [[ -z "$tag" ]]; then
+            tag="$RELEASE_TAG"
+          fi
+          if [[ -z "$tag" ]]; then
+            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          [[ -n "$tag" ]] || { echo "::error::没有可发布的版本标签"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "版本：$tag"
+
+      - name: 安装签名与索引工具
+        run: |
+          sudo apt-get -o Acquire::Retries=2 update
+          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends apt-utils gnupg
+
+      - name: 下载两架构安装包
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p debs
+          gh release download "${{ steps.meta.outputs.tag }}" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'multipan_*_amd64.deb' --pattern 'multipan_*_arm64.deb' --dir debs
+          ls -l debs
+
+      - name: 导入签名密钥
+        id: key
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          if [[ -z "$APT_SIGNING_KEY" ]]; then
+            echo "::error::缺少仓库密钥 APT_SIGNING_KEY，无法生成可被 apt 信任的仓库"
+            exit 1
+          fi
+          echo "$APT_SIGNING_KEY" | gpg --batch --import
+          if ! gpg --list-secret-keys --with-colons | grep -q '^sec:'; then
+            echo "::error::APT_SIGNING_KEY 中没有可用的私钥"
+            exit 1
+          fi
+          signer=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
+          [[ "$signer" =~ ^[[:xdigit:]]{40}$ ]] || { echo "::error::签名指纹无效"; exit 1; }
+          echo "signer=$signer" >> "$GITHUB_OUTPUT"
+          echo "签名指纹：$signer"
+
+      - name: 取回上次发布的仓库
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch --depth=1 origin gh-pages
+            git worktree add --detach previous FETCH_HEAD
+            echo "已取回上次发布的仓库"
+          else
+            echo "首次发布，没有旧仓库可保留"
+          fi
+
+      - name: 生成签名仓库
+        run: |
+          args=()
+          if [[ -f previous/dists/stable/InRelease ]]; then
+            args+=(--retain-from previous)
+          fi
+          packages=()
+          for arch in amd64 arm64; do
+            mapfile -t files < <(find debs -maxdepth 1 -name "multipan_*_${arch}.deb" -print)
+            [[ ${#files[@]} -eq 1 ]] || { echo "::error::$arch 安装包数量应为 1，实际 ${#files[@]}"; exit 1; }
+            packages+=("${files[0]}")
+          done
+          bash scripts/prepare-apt-repository.sh "${args[@]}" "${packages[@]}" \
+            "${{ steps.key.outputs.signer }}" out
+          touch out/.nojekyll
+          gpg --batch --armor --export "${{ steps.key.outputs.signer }}" > out/multipan-archive-keyring.asc
+          gpgv --keyring out/multipan-archive-keyring.gpg out/dists/stable/InRelease
+          echo "--- 发布内容 ---"
+          find out -maxdepth 3 -type f | sort | head -30
+
+      - name: 部署到 GitHub Pages 分支
+        run: |
+          cd out
+          git init -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "发布 APT 仓库 ${{ steps.meta.outputs.tag }}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages
+
+      - name: 写入摘要
+        run: |
+          {
+            echo "### APT 仓库已发布"
+            echo ""
+            echo "- 版本：\`${{ steps.meta.outputs.tag }}\`"
+            echo "- 签名指纹：\`${{ steps.key.outputs.signer }}\`"
+            echo "- 索引：https://makessr.github.io/MultiPan/dists/stable/InRelease"
+            echo "- 公钥：https://makessr.github.io/MultiPan/multipan-archive-keyring.asc"
+          } >> "$GITHUB_STEP_SUMMARY"

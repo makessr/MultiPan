@@ -1,2 +1,3 @@
 scripts/*.sh text eol=lf
 frontend/src/version.ts text eol=lf
+build/apt/*.asc text eol=lf
