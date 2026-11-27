@@ -138,6 +138,18 @@ export interface CtSMSChallenge {
     "checksum": string;
 }
 
+/**
+ * DeleteInput names one permanent delete. The 诚通 web account has no recycle
+ * bin flow in the desktop client, so its delete is immediate.
+ */
+export interface DeleteInput {
+    "accountId": string;
+    "parentId": string;
+    "entryId": string;
+    "name": string;
+    "folder": boolean;
+}
+
 export interface DownloadActionResult {
     "id": string;
     "name": string;

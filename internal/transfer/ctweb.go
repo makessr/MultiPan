@@ -49,6 +49,23 @@ type ctWebReply struct {
 	Data       json.RawMessage `json:"data"`
 }
 
+// ctWebFlag decodes the loose booleans the web API uses: it sends true/false in
+// some replies and 0/1 in others, so both shapes must map to the same value.
+type ctWebFlag bool
+
+func (f *ctWebFlag) UnmarshalJSON(raw []byte) error {
+	text := strings.TrimSpace(strings.Trim(strings.TrimSpace(string(raw)), `"`))
+	switch text {
+	case "1", "true", "yes":
+		*f = true
+	case "", "0", "false", "no", "null":
+		*f = false
+	default:
+		return fmt.Errorf("unknown flag %q", text)
+	}
+	return nil
+}
+
 func ctWebFailure(reply ctWebReply) error {
 	if reply.Code == 401 || reply.Code == 403 {
 		return errors.New("诚通网页版登录已失效，请重新登录")
@@ -408,6 +425,29 @@ func validCtWebFolder(s string) bool {
 	return true
 }
 
+// validCtWebEntryID accepts the "d123" folder ids and the plain numeric file ids
+// the web client uses.
+func validCtWebEntryID(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	// The web listing returns folders as "d<digits>" and files as
+	// "f<digits>"; both are accepted here, and a bare number stays valid.
+	if s[0] == 'd' || s[0] == 'f' {
+		s = s[1:]
+	}
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // ListCtWebFolders lists subfolders only, for the folder picker.
 func ListCtWebFolders(ctx context.Context, client *http.Client, a Account, parent string) (FolderPage, error) {
 	if strings.TrimSpace(parent) == "" {
@@ -645,22 +685,23 @@ func (u *HTTPUploader) ctweb(ctx context.Context, a Account, f File, folder stri
 			UploadURL   string `json:"uploadUrl"`
 			UploadURL2  string `json:"upload_url"`
 			FileName    string `json:"file_name"`
-			Exists      bool   `json:"exists"`
-			Instant     bool   `json:"instant_upload"`
+			Exists      ctWebFlag `json:"exists"`
+			Instant     ctWebFlag `json:"instant_upload"`
 			UploadHash  string `json:"upload_session_hash"`
 			FileNameAlt string `json:"filename"`
 		} `json:"data"`
-		UploadURL  string `json:"uploadUrl"`
-		Exists     bool   `json:"exists"`
-		Instant    bool   `json:"instant_upload"`
-		FileName   string `json:"file_name"`
-		FileHash   string `json:"upload_session_hash"`
-		UploadHash string `json:"hash"`
+		UploadURL  string    `json:"uploadUrl"`
+		Exists     ctWebFlag `json:"exists"`
+		Instant    ctWebFlag `json:"instant_upload"`
+		FileName   string    `json:"file_name"`
+		FileHash   string    `json:"upload_session_hash"`
+		UploadHash string    `json:"hash"`
 	}
 	payload := map[string]any{"folder_id": folder, "path": f.Name, "size": f.Size, "checksum": hash, "carrier": 0}
 	if e := c.postAdaptive(ctx, "/home/file/manage/upload", payload, &init); e != nil {
 		return e
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG upload init ok: ws=%d url=%q name=%q\n", c.ws, init.Data.UploadURL, init.Data.FileName)
 	address := strings.TrimSpace(init.Data.UploadURL)
 	if address == "" {
 		address = strings.TrimSpace(init.Data.UploadURL2)

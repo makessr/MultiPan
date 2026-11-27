@@ -222,6 +222,14 @@ export function DeleteAccount(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * DeleteCloudEntry permanently removes one entry for providers whose delete does
+ * not go through the recycle-bin receipts (诚通网盘网页版).
+ */
+export function DeleteCloudEntry($in: transfer$0.DeleteInput): $CancellablePromise<void> {
+    return $Call.ByID(3479487585, $in);
+}
+
+/**
  * DesktopPlatform reports the OS for the account and update controls.
  * All transfer and storage decisions are still enforced in Go.
  */

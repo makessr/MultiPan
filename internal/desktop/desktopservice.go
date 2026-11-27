@@ -143,6 +143,14 @@ func (s *DesktopService) RenameCloudEntry(in transfer.RenameInput) (transfer.Clo
 	return s.manager.RenameEntry(ctx, in)
 }
 
+// DeleteCloudEntry permanently removes one entry for providers whose delete does
+// not go through the recycle-bin receipts (诚通网盘网页版).
+func (s *DesktopService) DeleteCloudEntry(in transfer.DeleteInput) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	return s.manager.DeleteEntry(ctx, in)
+}
+
 func (s *DesktopService) MoveCloudFile(in transfer.MoveFileInput) (transfer.CloudEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

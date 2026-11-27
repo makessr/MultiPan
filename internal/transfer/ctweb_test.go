@@ -381,3 +381,43 @@ func TestCtWebMutationsCarryWorkspaceAndWebPayloads(t *testing.T) {
 		t.Fatalf("unexpected create payload %v", created)
 	}
 }
+
+// TestCtWebFlagAcceptsWebBooleans covers the loose booleans in the upload
+// reply: the web client is sent 0/1 in some replies and true/false in others.
+func TestCtWebFlagAcceptsWebBooleans(t *testing.T) {
+	var decoded struct {
+		Exists  ctWebFlag `json:"exists"`
+		Instant ctWebFlag `json:"instant_upload"`
+		Missing ctWebFlag `json:"missing"`
+	}
+	if e := json.Unmarshal([]byte(`{"exists":0,"instant_upload":1}`), &decoded); e != nil {
+		t.Fatalf("decode numbers: %v", e)
+	}
+	if bool(decoded.Exists) || !bool(decoded.Instant) || bool(decoded.Missing) {
+		t.Fatalf("unexpected numbers decode %+v", decoded)
+	}
+	if e := json.Unmarshal([]byte(`{"exists":true,"instant_upload":false}`), &decoded); e != nil {
+		t.Fatalf("decode booleans: %v", e)
+	}
+	if !bool(decoded.Exists) || bool(decoded.Instant) {
+		t.Fatalf("unexpected booleans decode %+v", decoded)
+	}
+	if e := json.Unmarshal([]byte(`{"exists":"maybe"}`), &decoded); e == nil {
+		t.Fatal("unknown flag accepted")
+	}
+}
+
+// TestValidCtWebEntryID covers the ids the web listing returns: folders use a
+// "d" prefix, files use an "f" prefix and a few paths only send digits.
+func TestValidCtWebEntryID(t *testing.T) {
+	for _, id := range []string{"d169659994", "f17569916327803", "169659994"} {
+		if !validCtWebEntryID(id) {
+			t.Fatalf("%q rejected", id)
+		}
+	}
+	for _, id := range []string{"", "x123", "d", "f", "d12a", "d" + strings.Repeat("9", 65)} {
+		if validCtWebEntryID(id) {
+			t.Fatalf("%q accepted", id)
+		}
+	}
+}

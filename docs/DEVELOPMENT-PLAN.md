@@ -11,8 +11,10 @@
 - 重新登录停在「等待登录」：网页端带着缓存会话重新进入时可能不再发带 `Authorization` 的请求，只靠请求头捕获会一直等下去。`runBrowserWithStorage` 在原有捕获之外，每秒用 `ExecuteScript` 读取 `sessionStorage`/`localStorage` 里的 `token`（`ICoreWebView2::ExecuteScript` 在 vtable 第 30 项，`go-webview2` 未导出回调类型，因此自建 COM 回调），两条路径任一条拿到合法令牌即结束；`storageScript` 为空时行为与旧逻辑一致。
 - 上传校验：`checksum` 是文件前 1 MB 的 MD5，与网页端一致；上传完成必须看到 `code==200`、`id>0` 且 `size` 相符，否则报「诚通上传未确认完成」。
 - 写入请求对齐（2026-11-27）：用户实机反馈上传、下载、删除、新建、改名全部失败。对照网页端脚本改成同一套请求体——删除 `{ids:"<fid>",force:0}`，改名 `{id:<数字>,name,is_rename:1}`，新建 `{folder_id,name}`，下载 `{file_id:<数字>,folder_id:<父>,carrier}`，上传初始化 `{folder_id,path,size,checksum,carrier}` 且 `hash` 改为网页端算法 `MD5(checksum + 0 + size + 0 + transferId)`（原先错用文件头 MD5）；这些请求都经 `postAdaptive` 带上 `workspace_id`（`c.ws` → `0` → 解析出的空间 → 最后不带该字段），成功后记住可用值。
-- 范围：`ctweb` 目前接列目录、上传、下载、新建文件夹、改名与账号检查，不参与分享、回收站和跨网盘复制；根目录标识沿用 `d0`。
-- 验证：`internal/transfer/ctweb_test.go` 覆盖目录映射、令牌失效提示、账号名读取、建目录请求体、上传确认与未确认失败、下载回落到 `stream`、目录标识校验；前端类型检查与完整门禁另行记录。真实账号验收需要用户在网页端登录后检查目录、上传与下载。
+- 界面与字段修复（2026-11-27，实机联调）：用户仍报「上传、下载、删除、新建、改名」不可用。用临时探针（解密本机 `state.enc` 取真实账号，直接打网页接口，测完即删）确认后端请求体都已正确，真正原因有两处——① `frontend/src/CloudFiles.vue` 的 `canCreate`/`canDownloadFolders`/`canDownload`/`canTrash` 能力列表漏了 `ctweb`，按钮被隐藏或禁用；② 上传初始化回复里 `exists` 是数字 `0`，`init` 结构用 `bool` 接导致 `json.Unmarshal` 失败，最终被工作空间重试覆盖成「workspace_id 参数无效」。修法：能力列表补 `ctweb`；新增 `ctWebFlag` 接受 `0/1` 与 `true/false`；`validCtWebEntryID` 接受网页端的 `f` 前缀（文件夹是 `d` 前缀、文件是 `f` 前缀）；`progressReader.Read` 允许空进度回调（真实上传路径也可能传 `nil`）；`rename.go` 的重命名白名单补 `ctweb`。
+- 删除入口：`ctweb` 没有回收站流程，因此新增 `internal/transfer/delete_cloud.go`（`DeleteInput`、`DeleteAccountEntry`、`Manager.DeleteEntry`，删除前重新列目录核对 ID、名称与类型只命中一条）与 `DesktopService.DeleteCloudEntry`（45 秒超时），文件页新增「删除…」确认弹窗，提示删除不进回收站、程序内无法恢复。
+- 范围：`ctweb` 目前接列目录、上传、下载、新建文件夹、改名、删除与账号检查，不参与分享、回收站和跨网盘复制；根目录标识沿用 `d0`。
+- 验证：`internal/transfer/ctweb_test.go` 覆盖目录映射、令牌失效提示、账号名读取、建目录请求体、上传确认与未确认失败、下载回落到 `stream`、目录标识校验、工作空间解析的各种响应形状、写入请求体是否带工作空间、宽松布尔与文件标识前缀。2026-11-27 用真实账号跑通完整序列：列目录 → 新建目录 → 上传（62 KB）→ 重新列目录找到副本 → 下载并逐字节比对一致 → 改名 → 删除文件 → 删除目录，全部成功。
 
 ## 相近目录查找覆盖中间层候选与多余层级（2026-11-27）
 

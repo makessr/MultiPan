@@ -17,6 +17,7 @@ export type {
     CopyReceipt,
     CtLoginInput,
     CtSMSChallenge,
+    DeleteInput,
     DownloadActionResult,
     DownloadInput,
     DownloadJob,
