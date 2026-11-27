@@ -1,5 +1,13 @@
 # MultiPan 后续开发计划
 
+## APT 源发布到 GitHub Pages（2026-11-27）
+
+新增 `.github/workflows/apt-pages.yml`。Release 从草稿转为已发布时触发，也可以在「发布 APT 仓库」手动指定标签。工作流取回该版本 amd64 与 arm64 两个 `.deb`，用仓库密钥 `APT_SIGNING_KEY` 生成 `dists/stable` 索引与 `pool/main/m/multipan`，下载上一次发布的仓库作为 `--retain-from` 保留旧索引与旧包，最后推送到 `gh-pages` 分支，由 Pages 提供 `https://makessr.github.io/MultiPan`。
+
+签名密钥 2026-11-27 生成，RSA 3072，只用于签名，无过期时间，指纹 `97A1 4173 6BE4 B311 C722  2B2F D0C7 755B 6F08 A8C2`。私钥存入仓库密钥并另行离线备份；公钥在源码 `build/apt/multipan-archive-keyring.asc`，发布后同时由站点提供。更换密钥会让已导入旧公钥的用户无法验证，须在发布说明中要求重新导入。
+
+此前准备脚本、签名与跨版本保留已由 `scripts/prepare-apt-repository.sh` 完成，本次补齐的是持久签名密钥与公开发布位置。发布前核对流程见 [发布前检查](RELEASE-CHECKLIST.md) 第 6 步。
+
 ## 发布检查脚本兼容 Windows PowerShell 5.1（2026-11-27）
 
 `scripts/check-release-readiness.ps1` 原先用 `ConvertFrom-Json -NoEnumerate`，只有 PowerShell 6 及以上支持；文件本身是无 BOM 的 UTF-8，Windows PowerShell 5.1 按 ANSI 解析会断开中文串并直接报语法错误。现在按宿主版本选择解析方式，5.1 下把列表结果用 `@()` 固定为数组，并为脚本补上 UTF-8 BOM。在 5.1 上分别验证了不带草稿标签与带草稿标签两条路径：前者核对提交、两套 CI 与工作流清单，后者额外核对草稿标签、目标提交、预发布标记与 18 个必需附件。草稿路径用临时草稿验证后已删除，未改动任何已发布版本。

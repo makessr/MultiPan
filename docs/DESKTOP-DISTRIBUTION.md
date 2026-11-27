@@ -31,35 +31,42 @@ sudo apt install "./bin/multipan_0.99.0_$(dpkg --print-architecture).deb"
 
 ### 发布 APT 源
 
-1. 在 GitHub 打开 MultiPan 的「Actions → Linux 与 macOS 构建」，进入同一个成功运行记录。从「Artifacts」下载 Linux amd64 和 arm64 产物并解压。确认两个 `.deb` 的版本相同，用各自产物中的 SHA-256 文件核对。把两包放到下面命令所用的路径。
-2. 在 Ubuntu 或 Debian 的 Bash 中安装工具。首次发布时生成专用 GPG 签名密钥，并从 `gpg` 的输出复制完整指纹。以后发布沿用这把密钥。可将显示名中的邮箱换成你的发布邮箱。
+APT 仓库发布在本仓库的 GitHub Pages 上，地址为 `https://makessr.github.io/MultiPan`。发布由 `.github/workflows/apt-pages.yml` 完成：GitHub Release 从草稿转为已发布时自动触发，也可以在「Actions → 发布 APT 仓库」手动运行并指定标签。
 
-   ```bash
-   sudo apt update
-   sudo apt install apt-utils gnupg
-   gpg --quick-generate-key 'MultiPan APT <release@example.org>' rsa3072 sign 2y
-   gpg --list-secret-keys --fingerprint 'MultiPan APT'
-   ```
+工作流下载该版本 amd64 与 arm64 两个 `.deb`，用仓库密钥 `APT_SIGNING_KEY` 生成并签名索引，取回上一次发布的仓库作为 `--retain-from` 保留旧安装包与 by-hash 索引，最后把结果推送到 `gh-pages` 分支。首次发布前需要：在仓库 Secrets 中设置 `APT_SIGNING_KEY`，并把 Pages 的发布源设为 `gh-pages` 分支根目录。
 
-3. 在 MultiPan 源码根目录运行下面的命令。将指纹和两个包的路径替换为实际值。输出目录须不存在。脚本生成 `pool/`、`dists/` 和 `multipan-archive-keyring.gpg`。GPG 私钥保留在签名机器上。
+签名密钥在 2026-11-27 生成，RSA 3072，只用于签名索引，没有过期时间：
 
-   ```bash
-   apt_fingerprint='替换为完整的40位指纹'
-   bash scripts/prepare-apt-repository.sh \
-     bin/multipan_0.99.0_amd64.deb bin/multipan_0.99.0_arm64.deb \
-     "$apt_fingerprint" bin/apt-repository
-   ```
+- 指纹：`97A1 4173 6BE4 B311 C722  2B2F D0C7 755B 6F08 A8C2`
+- 公钥：源码内 `build/apt/multipan-archive-keyring.asc`；发布后也可从 `https://makessr.github.io/MultiPan/multipan-archive-keyring.asc` 下载
+- 私钥：保存在仓库密钥 `APT_SIGNING_KEY`，并需离线备份。私钥丢失后无法继续签出已安装用户能验证的新索引，只能更换密钥并要求用户重新导入
 
-4. 选择一个公开 HTTPS 静态目录发布生成的文件。如果已有静态站点，将整个生成目录的**内容**放到网站的 `/multipan/`。如果选择 GitHub Pages，建一个独立的公开仓库，例如 `makessr/multipan-apt`，将生成目录的内容放在该仓库根目录，在根目录创建空文件 `.nojekyll`。推送到 `main`，在仓库中点击「Settings → Pages → Source → Deploy from a branch」，选择「main → /(root) → Save」。部署完成后，用 Pages 显示的地址访问 `dists/stable/InRelease` 和 `multipan-archive-keyring.gpg`。把实际地址和公钥的完整指纹公布在 MultiPan 的发布说明中。 [GitHub Pages 发布源设置](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+发布完成后用公开地址核对签名：
 
-使用 GitHub Pages 时留意站点容量上限，特别是保留多个版本的两种架构安装包时。 [GitHub Pages 限制](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
+```bash
+curl -fsSL https://makessr.github.io/MultiPan/dists/stable/InRelease -o InRelease
+curl -fsSL https://makessr.github.io/MultiPan/multipan-archive-keyring.asc -o key.asc
+gpg --dearmor < key.asc > key.gpg
+gpgv --keyring ./key.gpg InRelease
+```
+
+使用 GitHub Pages 时留意站点容量上限，保留多个版本的两种架构安装包会持续占用空间。 [GitHub Pages 限制](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
+
+需要完全手动生成时，在 Linux 上运行下面的命令。输出目录须不存在，脚本生成 `pool/`、`dists/` 和 `multipan-archive-keyring.gpg`；私钥留在签名机器上。手动生成的仓库必须使用同一把密钥，否则已导入旧公钥的用户无法验证。
+
+```bash
+apt_fingerprint='97A141736BE4B311C7222B2FD0C7755B6F08A8C2'
+bash scripts/prepare-apt-repository.sh \
+  bin/multipan_0.99.0_amd64.deb bin/multipan_0.99.0_arm64.deb \
+  "$apt_fingerprint" bin/apt-repository
+```
 
 ### 从 APT 源安装
 
-用实际发布地址替换下面的示例地址。运行前半段，确认显示的完整指纹和 MultiPan 发布说明公布的指纹一致，再继续安装。以下示例适用于 amd64 或 arm64 的 Linux 桌面。
+运行前半段，确认显示的完整指纹和 MultiPan 发布说明公布的指纹一致，再继续安装。以下示例适用于 amd64 或 arm64 的 Linux 桌面。
 
 ```bash
-apt_url='https://makessr.github.io/multipan-apt'
+apt_url='https://makessr.github.io/MultiPan'
 curl -fsSL "$apt_url/multipan-archive-keyring.gpg" -o multipan-archive-keyring.gpg
 gpg --show-keys --fingerprint multipan-archive-keyring.gpg
 ```
@@ -80,11 +87,11 @@ apt-cache policy multipan
 sudo apt install multipan
 ```
 
-以后执行 `sudo apt update` 和 `sudo apt install --only-upgrade multipan` 即可更新。正式仓库地址和公钥发布前，可以继续从已核对的构建中下载单独的 Debian 包。 [Debian APT 源配置](https://manpages.debian.org/trixie/apt/sources.list.5.en.html)
+以后执行 `sudo apt update` 和 `sudo apt install --only-upgrade multipan` 即可更新。仓库在 1.0 之前同时提供预览版，版本号更大的正式版发布后 `apt` 会自动升级。也可以继续从已核对的构建中下载单独的 Debian 包。 [Debian APT 源配置](https://manpages.debian.org/trixie/apt/sources.list.5.en.html)
 
 ### 发布下一版
 
-保存每次完整生成的目录作为本机快照。发布下一版时复用同一 GPG 密钥，可通过最多两次 `--retain-from` 保留最近两次签名快照的哈希索引与对应安装包。
+工作流自动保留上一个已发布版本的哈希索引与安装包。手动生成时复用同一 GPG 密钥，可通过最多两次 `--retain-from` 保留最近两次签名快照：
 
 ```bash
 bash scripts/prepare-apt-repository.sh \
@@ -92,7 +99,7 @@ bash scripts/prepare-apt-repository.sh \
   "$amd64_package" "$arm64_package" "$apt_fingerprint" bin/apt-repository-next
 ```
 
-使用 GitHub Pages 时，把生成结果放在同一个部署提交中。使用逐文件上传的静态站点时，先上传 `pool/`、`by-hash/` 与常规索引，最后切换 `dists/stable/InRelease`。旧缓存失效前保留对应旧索引和安装包。Linux 与 macOS 构建工作流会用临时密钥在隔离环境核对两架构安装包的下载与摘要。 [Debian 仓库格式](https://wiki.debian.org/DebianRepository/Format#indices_acquisition_via_hashsums_.28by-hash.29)
+逐文件上传的静态站点应先上传 `pool/`、`by-hash/` 与常规索引，最后切换 `dists/stable/InRelease`；旧缓存失效前保留对应旧索引和安装包。Linux 与 macOS 构建工作流会用临时密钥在隔离环境核对两架构安装包的下载与摘要。 [Debian 仓库格式](https://wiki.debian.org/DebianRepository/Format#indices_acquisition_via_hashsums_.28by-hash.29)
 
 ## macOS 预览版
 

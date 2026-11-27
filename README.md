@@ -32,7 +32,9 @@ Actions 产物为未签名的预览构建。首次使用时，在左侧「我的
 
 Ubuntu 24.04 或 Debian 13 桌面提供独立的 amd64 和 arm64 安装包。运行 `dpkg --print-architecture` 确认架构，从 [GitHub Releases](https://github.com/makessr/MultiPan/releases) 或 [Linux 与 macOS 构建](https://github.com/makessr/MultiPan/actions/workflows/desktop-unix.yml) 下载对应的 `.deb`，再运行 `sudo apt install ./安装包文件名.deb`。Linux 通过手动导入登录信息添加账号，WebDAV 沿用用户名和密码。
 
-Linux 构建及保留历史索引的 APT 发布流程见[桌面版分发文档](docs/DESKTOP-DISTRIBUTION.md#linux)。
+也可以在核对公钥指纹后加入签名 APT 源 `https://makessr.github.io/MultiPan`，用 `sudo apt install multipan` 安装，之后随 `sudo apt update` 升级。每个公开发布的版本会自动更新该源，并保留上一版安装包供旧缓存访问。
+
+Linux 构建、APT 源发布及保留历史索引的流程见[桌面版分发文档](docs/DESKTOP-DISTRIBUTION.md#发布-apt-源)。
 
 ### macOS 预览版
 
@@ -52,7 +54,7 @@ Windows 客户端可在「传输设置 → 应用更新」检查 [GitHub Release
 | 待推进 | 盘内文件操作 | 补夸克原生复制和蓝奏文件夹移动。 |
 | 停止推进 | 跨网盘复制与搬运 | 保留已交付的夸克与光鸭原件预读（单文件 8 GiB、单批或目录 16 GiB），不再扩大可核对的来源范围，删源搬运按范围暂停。 |
 | 延后 | 诚通公开分享 | 核对 WebDAV 账号与公开分享所需独立登录会话之间的授权方式。 |
-| 待推进 | 正式发布 | Windows x64 和 ARM64 更新均已接入。系统级安装已在隔离环境验证首次安装中断后归档重试、升级中断后恢复原版。发布前核对包含双架构 APT 仓库校验。Windows 开发安装器可只读核对系统级登记和公共快捷方式。Windows 当前通过无证书预发布手动安装和升级。全用户 MSI 已进入开发版，实际 UAC、跨用户启动及卸载待验收。Linux APT 托管仍待完成。macOS 提供未公证预览包。 |
+| 待推进 | 正式发布 | Windows x64 和 ARM64 更新均已接入。系统级安装已在隔离环境验证首次安装中断后归档重试、升级中断后恢复原版。发布前核对包含双架构 APT 仓库校验。Windows 开发安装器可只读核对系统级登记和公共快捷方式。Windows 当前通过无证书预发布手动安装和升级。全用户 MSI 已进入开发版，实际 UAC、跨用户启动及卸载待验收。Linux 仓库已发布在 GitHub Pages 的签名 APT 源上。macOS 提供未公证预览包。 |
 
 夸克和光鸭原件预读支持单文件 8 GiB、单批或目录 16 GiB。夸克缺少修改时间时可通过完整内容核对完成中转复制。Windows 系统级安装隔离预检可识别被修改的卸载命令和快捷方式。受保护卸载已在隔离目录验证文件占用、篡改拒绝和重新安装。
 
