@@ -8,6 +8,8 @@
 
 此前准备脚本、签名与跨版本保留已由 `scripts/prepare-apt-repository.sh` 完成，本次补齐的是持久签名密钥与公开发布位置。发布前核对流程见 [发布前检查](RELEASE-CHECKLIST.md) 第 6 步。
 
+2026-11-27 首次发布核对：手动触发工作流（run 45982392294）生成 `gh-pages`（81f790f），Pages 源设为该分支根目录后状态为 built。公开地址 `https://makessr.github.io/MultiPan/dists/stable/InRelease` 返回 200，`gpgv` 校验为 `Good signature`，签名密钥指纹与公布值一致；Release 含 `Acquire-By-Hash: yes`、`Architectures: amd64 arm64`、`Origin/Label=MultiPan`，两个架构的 Packages 与 by-hash 副本齐全。当前只有预发布版本，`apt install multipan` 装到的是 0.99.0 预览版。真实 Linux 机器上的 `apt update`/安装仍待用户验收。
+
 ## 发布检查脚本兼容 Windows PowerShell 5.1（2026-11-27）
 
 `scripts/check-release-readiness.ps1` 原先用 `ConvertFrom-Json -NoEnumerate`，只有 PowerShell 6 及以上支持；文件本身是无 BOM 的 UTF-8，Windows PowerShell 5.1 按 ANSI 解析会断开中文串并直接报语法错误。现在按宿主版本选择解析方式，5.1 下把列表结果用 `@()` 固定为数组，并为脚本补上 UTF-8 BOM。在 5.1 上分别验证了不带草稿标签与带草稿标签两条路径：前者核对提交、两套 CI 与工作流清单，后者额外核对草稿标签、目标提交、预发布标记与 18 个必需附件。草稿路径用临时草稿验证后已删除，未改动任何已发布版本。
