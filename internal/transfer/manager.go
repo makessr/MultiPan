@@ -94,18 +94,6 @@ func NewManager(path string, u Uploader) (*Manager, error) {
 	for _, d := range s.Accounts {
 		a := d.Account
 		a.Secret = d.Secret
-		if d.Renewal != nil {
-			if !validSessionRenewal(a, *d.Renewal) {
-				return nil, errors.New("登录维护记录无效，未覆盖原状态")
-			}
-			a.renewal = *d.Renewal
-			if a.renewal.Pending {
-				a.renewal.Enabled = false
-				if a.renewal.Outcome != "candidate_mismatch" {
-					a.renewal.Outcome = "unconfirmed"
-				}
-			}
-		}
 		m.accounts = append(m.accounts, a)
 	}
 	for i := range m.tasks {
@@ -135,7 +123,6 @@ func NewManager(path string, u Uploader) (*Manager, error) {
 	if err := m.restoreRelays(s.Relays); err != nil {
 		return nil, err
 	}
-	m.startSessionRenewalLoop()
 	return m, nil
 }
 func (m *Manager) Snapshot() Snapshot {
@@ -171,10 +158,6 @@ func (m *Manager) saveLocked() error {
 	}
 	for _, a := range m.accounts {
 		d := diskAccount{Account: a, Secret: a.Secret}
-		if a.renewal != (diskSessionRenewal{}) {
-			r := a.renewal
-			d.Renewal = &r
-		}
 		s.Accounts = append(s.Accounts, d)
 	}
 	err := writeState(m.path, s)
@@ -368,12 +351,6 @@ func (m *Manager) SaveAccount(in AccountInput) (Account, error) {
 	previousFingerprints := m.fingerprints
 	if index >= 0 {
 		old := m.accounts[index]
-		sameSource := old.Kind == a.Kind && old.Endpoint == a.Endpoint && old.Username == a.Username && old.Secret == a.Secret
-		if sameSource && strings.TrimSpace(in.Secret) == "" {
-			a.renewal = old.renewal
-		} else if a.Kind == "pan123" && (!sameSource || old.renewal != (diskSessionRenewal{})) {
-			a.renewal = freshSessionOrigin()
-		}
 		if old.Kind != a.Kind || old.Endpoint != a.Endpoint || old.Username != a.Username || old.Secret != a.Secret || downloadScope(old) != downloadScope(a) {
 			m.dropFingerprintsLocked(a.ID, "")
 		}

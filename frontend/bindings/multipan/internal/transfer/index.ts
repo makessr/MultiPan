@@ -56,7 +56,6 @@ export type {
     RenameInput,
     RestoredFileForMove,
     RestoredFileMoveCheck,
-    SessionRenewalView,
     ShareInput,
     ShareRecord,
     ShareRecreation,

@@ -479,18 +479,6 @@ export interface RestoredFileMoveCheck {
     "message": string;
 }
 
-export interface SessionRenewalView {
-    "accountId": string;
-    "enabled": boolean;
-    "pending": boolean;
-    "busy": boolean;
-    "next": string;
-    "last": string;
-    "outcome": string;
-    "canCheck": boolean;
-    "checkedAt": string;
-}
-
 export interface ShareInput {
     "settingsIntent"?: string;
     "handle"?: string;

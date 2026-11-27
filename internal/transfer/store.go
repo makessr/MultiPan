@@ -8,9 +8,8 @@ import (
 )
 
 type diskAccount struct {
-	Account Account             `json:"account"`
-	Secret  string              `json:"secret"`
-	Renewal *diskSessionRenewal `json:"renewal,omitempty"`
+	Account Account `json:"account"`
+	Secret  string  `json:"secret"`
 }
 type diskState struct {
 	Relays          []diskRelay           `json:"relays,omitempty"`

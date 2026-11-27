@@ -101,10 +101,6 @@ export function CheckPendingReview(kind: string, id: string): $CancellablePromis
     return $Call.ByID(487983942, kind, id);
 }
 
-export function CheckSessionRenewal(id: string): $CancellablePromise<transfer$0.SessionRenewalView> {
-    return $Call.ByID(2267705847, id);
-}
-
 export function CheckUploadPlan(files: transfer$0.File[] | null, targets: transfer$0.Target[] | null): $CancellablePromise<transfer$0.UploadReview> {
     return $Call.ByID(2647427865, files, targets);
 }
@@ -524,10 +520,6 @@ export function RenameManagedPan123Share(handle: string, title: string): $Cancel
     return $Call.ByID(3062024068, handle, title);
 }
 
-export function RenewAccountSession(id: string): $CancellablePromise<transfer$0.SessionRenewalView> {
-    return $Call.ByID(602829019, id);
-}
-
 export function RequestCtSMS(phone: string): $CancellablePromise<transfer$0.CtSMSChallenge> {
     return $Call.ByID(532065250, phone);
 }
@@ -576,10 +568,6 @@ export function SaveTransferSettings(settings: transfer$0.TransferSettings): $Ca
     return $Call.ByID(3111865006, settings);
 }
 
-export function SessionRenewals(): $CancellablePromise<transfer$0.SessionRenewalView[] | null> {
-    return $Call.ByID(4008409642);
-}
-
 export function SetAutomaticApplicationUpdateChecks(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(568025620, enabled);
 }
@@ -598,10 +586,6 @@ export function SetManagedPan123ShareTrafficLimit(handle: string, limit: number)
 
 export function SetManagedPan123ShareTrafficMode(handle: string, mode: number): $CancellablePromise<transfer$0.ShareResult> {
     return $Call.ByID(3476159594, handle, mode);
-}
-
-export function SetSessionAutoRenew(id: string, enabled: boolean): $CancellablePromise<void> {
-    return $Call.ByID(2297011627, id, enabled);
 }
 
 export function ShareBatchCloudEntry($in: transfer$0.ShareInput): $CancellablePromise<transfer$0.ShareResult> {
