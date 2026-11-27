@@ -37,7 +37,8 @@ jobs:
             tag="$RELEASE_TAG"
           fi
           if [[ -z "$tag" ]]; then
-            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1 \
+              --json tagName --jq '.[0].tagName')
           fi
           [[ -n "$tag" ]] || { echo "::error::没有可发布的版本标签"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
