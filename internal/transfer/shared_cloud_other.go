@@ -266,7 +266,8 @@ func pan123ManagedSharesByType(ctx context.Context, client *http.Client, a Accou
 		}
 		expiry := "有效期以网盘显示为准"
 		status := "有效性待核对"
-		if d, e := managed123Deadline(row.Expiration); e == nil {
+		deadline, deadlineErr := managed123Deadline(row.Expiration)
+		if d, e := deadline, deadlineErr; e == nil {
 			expiry = "到期：" + d.Format(time.RFC3339)
 			if !d.After(time.Now()) {
 				status = "已到期"
@@ -275,10 +276,12 @@ func pan123ManagedSharesByType(ctx context.Context, client *http.Client, a Accou
 		if len(row.Violations) > 0 {
 			status = "分享内容受限"
 		}
-		if expired, e := managed123Expired(row.Expired); expired || e != nil {
+		expired, expiredErr := managed123Expired(row.Expired)
+		if expired || expiredErr != nil {
 			status = "已失效或状态未确认"
 		}
-		item := ManagedShare{ID: token, Name: h.Name, Status: status, Expiry: expiry, CanRevoke: !paid && (row.Paid == nil || *row.Paid == 0), CanEdit: h.Settings123 != "", CanLimitTraffic123: h.TrafficCap123 != nil, SelectionKey: managedShareSelectionKey(h)}
+		item := ManagedShare{ID: token, Name: h.Name, Status: status, Expiry: expiry, CanRevoke: !paid && (row.Paid == nil || *row.Paid == 0), CanEdit: h.Settings123 != "", CanLimitTraffic123: h.TrafficCap123 != nil,
+			replacementAvailable: deadlineErr == nil && deadline.After(time.Now()) && expiredErr == nil && !expired && len(row.Violations) == 0 && (!paid || row.PaidAudit != nil && *row.PaidAudit == 1), SelectionKey: managedShareSelectionKey(h)}
 		if paid {
 			item.PriceFen, item.EarningsFen = managed123Amount(row.PriceFen), managed123Amount(row.EarningsFen)
 			item.CanRevoke = revocationAccountMatches(a, h) && page <= 10
@@ -461,7 +464,7 @@ func baiduManagedShares(ctx context.Context, client *http.Client, a Account, pag
 		if frozen {
 			status = "已被冻结"
 		}
-		result.Items = append(result.Items, ManagedShare{ID: token, Name: h.Name, Status: status, Expiry: managedBaiduExpiry(row), CanEdit: !frozen && h.URL != "" && row.Expiry != nil && row.Remaining != nil && *row.Expiry >= 0 && *row.Remaining >= 0, CanRevoke: true, CanActivate: h.ActivationBaidu != "", SelectionKey: managedShareSelectionKey(h)})
+		result.Items = append(result.Items, ManagedShare{ID: token, Name: h.Name, Status: status, Expiry: managedBaiduExpiry(row), CanEdit: !frozen && h.URL != "" && row.Expiry != nil && row.Remaining != nil && *row.Expiry >= 0 && *row.Remaining >= 0, CanRevoke: true, CanActivate: h.ActivationBaidu != "", replacementAvailable: !frozen && row.Expiry != nil && row.Remaining != nil && *row.Expiry >= 0 && *row.Remaining >= 0, SelectionKey: managedShareSelectionKey(h)})
 	}
 	return result, nil
 }

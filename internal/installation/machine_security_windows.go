@@ -38,7 +38,7 @@ func productionMachinePolicy() (machineSecurityPolicy, error) {
 	return p, nil
 }
 
-func (p machineSecurityPolicy) descriptor(sd *windows.SECURITY_DESCRIPTOR, protected bool, mutationMask uint32) (string, error) {
+func (p machineSecurityPolicy) descriptor(sd *windows.SECURITY_DESCRIPTOR, protected, ancestor bool, mutationMask uint32) (string, error) {
 	if sd == nil || !sd.IsValid() {
 		return "", errors.New("机器目录安全描述符无法核对")
 	}
@@ -74,9 +74,12 @@ func (p machineSecurityPolicy) descriptor(sd *windows.SECURITY_DESCRIPTOR, prote
 		if !sid.IsValid() || uintptr(sid.Len()) > uintptr(ace.Header.AceSize)-offset {
 			return "", errors.New("机器目录ACE身份无效")
 		}
-		// Conservative: deny ACEs do not cancel an unsafe allow, and unsafe
-		// inherit-only grants also fail. Never try to repair an unfamiliar ACL.
-		if ace.Header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE && uint32(ace.Mask)&mutationMask != 0 && !p.trusted[sid.String()] {
+		// On an ancestor, an inherit-only ACE cannot modify the directory
+		// itself. Descendants on the installation path are audited separately,
+		// including the protected installation root and each managed file.
+		// Deny ACEs never cancel an unsafe allow for this audit.
+		inactiveOnAncestor := ancestor && ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0
+		if !inactiveOnAncestor && ace.Header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE && uint32(ace.Mask)&mutationMask != 0 && !p.trusted[sid.String()] {
 			return "", errors.New("机器目录向非受信任身份授予修改权限")
 		}
 	}
@@ -131,7 +134,7 @@ func (p machineSecurityPolicy) nodeHandle(h windows.Handle, directory, protected
 	if err != nil {
 		return out, err
 	}
-	out.Permissions, err = p.descriptor(sd, protected, mask)
+	out.Permissions, err = p.descriptor(sd, protected, directory && !protected, mask)
 	if err != nil {
 		return out, err
 	}

@@ -11,6 +11,7 @@ const maxShareRecords = 1000
 // diskShare is stored inside the existing OS-protected state, never in a public
 // history response. No login credentials or expiring download nodes belong here.
 type diskShare struct {
+	RecreatedFrom       string      `json:"recreatedFrom,omitempty"`
 	Superseded          bool        `json:"superseded,omitempty"`
 	Input               ShareInput  `json:"input"`
 	Scope               string      `json:"scope"`
@@ -29,7 +30,7 @@ type diskShare struct {
 }
 
 func snapshotShare(op *shareOperation) diskShare {
-	return diskShare{Superseded: op.superseded, Input: op.in, Scope: op.scope, Key: op.key, Result: op.result,
+	return diskShare{RecreatedFrom: op.recreatedFrom, Superseded: op.superseded, Input: op.in, Scope: op.scope, Key: op.key, Result: op.result,
 		Created: op.created, Task: op.task, Share: op.share, Key123: op.key123, QuarkGroupVerified: op.quarkGroupVerified,
 		BaiduSource: op.baiduSource, BaiduURL: op.baiduURL,
 		BaiduExpiryPassword: op.baiduExpiryPassword, LanzouURL: op.lanzouURL, Revoked: op.revoked}
@@ -130,7 +131,7 @@ func (m *Manager) restoreShares(rows []diskShare) error {
 			d.Result.URL, d.Result.Password, d.Result.CanCheck = "", "", false
 			d.Result.Message = "此原分享回执已失效，请使用最新回执或到官网核对"
 		}
-		op := &shareOperation{in: d.Input, scope: d.Scope, key: d.Key, result: d.Result, created: d.Created,
+		op := &shareOperation{recreatedFrom: d.RecreatedFrom, in: d.Input, scope: d.Scope, key: d.Key, result: d.Result, created: d.Created,
 			task: d.Task, share: d.Share, key123: d.Key123, quarkGroupVerified: d.QuarkGroupVerified,
 			baiduSource: d.BaiduSource, baiduURL: d.BaiduURL,
 			baiduExpiryPassword: d.BaiduExpiryPassword, lanzouURL: d.LanzouURL, saved: d, revoked: d.Revoked, superseded: d.Superseded}
@@ -143,24 +144,56 @@ func (m *Manager) restoreShares(rows []diskShare) error {
 // ClearShareHistory removes only definitive local receipts. It never revokes a
 // cloud share and cannot discard an uncertain write or an operation in progress.
 func (m *Manager) ClearShareHistory() (int, error) {
+	return m.clearShareHistory(nil)
+}
+
+// ClearSelectedShareHistory clears exactly the confirmed local receipt IDs.
+// A missing or no longer eligible receipt leaves the whole selection intact.
+func (m *Manager) ClearSelectedShareHistory(ids []string) (int, error) {
+	if len(ids) == 0 || len(ids) > maxShareRecords {
+		return 0, errors.New("清理范围无效，请刷新本机分享记录")
+	}
+	return m.clearShareHistory(ids)
+}
+
+func (m *Manager) clearShareHistory(ids []string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closing {
 		return 0, errors.New("程序正在退出")
 	}
+	requested := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		requested[id] = true
+	}
+	retained := m.shareSourcesInUseLocked()
 	removed := make(map[string]*shareOperation)
 	for id, op := range m.shares {
+		if ids != nil && !requested[id] {
+			continue
+		}
+		if retained[id] {
+			if ids != nil {
+				return 0, errors.New("所选记录包含重新分享仍在使用的原回执，本次未清理")
+			}
+			continue
+		}
 		a := m.downloadAccountLocked(op.in.AccountID)
 		if r, blocked := m.shareRevocationOverlayLocked(op); blocked && r.State == "unknown" {
 			continue
 		}
 		if !op.running && a.ID != "" && downloadScope(a) == op.scope && (op.result.State == "ready" || op.result.State == "failed") {
 			removed[id] = op
-			delete(m.shares, id)
 		}
+	}
+	if ids != nil && len(removed) != len(ids) {
+		return 0, errors.New("所选分享记录已变化，本次未清理。请刷新后重试")
 	}
 	if len(removed) == 0 {
 		return 0, nil
+	}
+	for id := range removed {
+		delete(m.shares, id)
 	}
 	if m.saveLocked() != nil {
 		for id, op := range removed {

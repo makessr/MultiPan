@@ -5,7 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -42,17 +45,6 @@ func (u VerifiedUpdate) stageInstaller(ctx context.Context, dir string, verifySi
 		return "", errors.New("安装包目标已存在或无法核对，未下载")
 	}
 
-	resp, err := openUpdateOriginFile(ctx, updateOriginClient(10*time.Minute), u.origin.JoinPath(m.Asset), m.Size)
-	if err != nil {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.ContentLength >= 0 && resp.ContentLength != m.Size {
-		return "", errors.New("安装包响应长度与签名清单不一致")
-	}
 	tmp, err := newUpdateTemporaryFile(dir)
 	if err != nil {
 		return "", err
@@ -66,16 +58,16 @@ func (u VerifiedUpdate) stageInstaller(ctx context.Context, dir string, verifySi
 		}
 		_ = tmp.Close()
 	}()
-	if err := u.VerifyInstaller(io.TeeReader(resp.Body, tmp)); err != nil {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
+	if err := u.downloadUpdate(ctx, tmp); err != nil {
 		return "", err
 	}
 	if err := tmp.Sync(); err != nil {
 		return "", err
 	}
 	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := u.VerifyInstallerArchitecture(tmp); err != nil {
 		return "", err
 	}
 	if verifySignature != nil {
@@ -95,6 +87,68 @@ func (u VerifiedUpdate) stageInstaller(ctx context.Context, dir string, verifySi
 	}
 	published = true
 	return destination, nil
+}
+
+func (u VerifiedUpdate) downloadUpdate(ctx context.Context, tmp *os.File) error {
+	asset := u.origin.JoinPath(u.AssetName())
+	if u.githubRoute == "" {
+		err := u.readUpdateInstaller(ctx, updateOriginClient(10*time.Minute), asset, tmp, false)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
+	client := updateAssetClient(updateOriginClient(3*time.Minute), true)
+	return u.downloadGitHubUpdate(ctx, client, asset, tmp)
+}
+
+func (u VerifiedUpdate) downloadGitHubUpdate(ctx context.Context, client *http.Client, asset *url.URL, tmp *os.File) error {
+	var failures error
+	for _, route := range githubDownloadRoutes(u.githubRoute) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !u.manifest.Expires.After(time.Now()) {
+			return errors.New("签名清单在下载期间到期")
+		}
+		if err := tmp.Truncate(0); err != nil {
+			return err
+		}
+		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		err := u.readUpdateInstaller(ctx, client, githubRouteURL(route, asset), tmp, true)
+		if err == nil {
+			return nil
+		}
+		failures = errors.Join(failures, fmt.Errorf("%s：%w", route, err))
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return failures
+}
+
+func (u VerifiedUpdate) readUpdateInstaller(ctx context.Context, client *http.Client, asset *url.URL, tmp io.Writer, github bool) error {
+	var timer *time.Timer
+	if github {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		timer = time.AfterFunc(6*time.Second, cancel)
+	}
+	resp, err := openUpdateOriginFile(ctx, client, asset, u.manifest.Size)
+	if timer != nil {
+		timer.Stop()
+	}
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.ContentLength >= 0 && resp.ContentLength != u.manifest.Size {
+		return errors.New("安装包响应长度与签名清单不一致")
+	}
+	return u.VerifyInstaller(io.TeeReader(resp.Body, tmp))
 }
 
 func pinUpdateDirectory(dir string) (windows.Handle, func(), error) {

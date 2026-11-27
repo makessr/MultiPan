@@ -111,7 +111,7 @@ func TestProtectedMachineInstallLifecycle(t *testing.T) {
 		requireFile(t, missing, next.Files[PayloadNames[1]])
 		requireFile(t, unknown, []byte("keep"))
 	})
-	if err = s.Uninstall(ScopeMachine); err != nil {
+	if err = s.UninstallProtectedMachine(); err != nil {
 		t.Fatal(err)
 	}
 	requireFile(t, unknown, []byte("keep"))
@@ -130,4 +130,73 @@ func TestProtectedMoveDoesNotOverwrite(t *testing.T) {
 	}
 	requireFile(t, from, []byte("new"))
 	requireFile(t, to, []byte("existing"))
+}
+
+func TestProtectedMachineUninstallPreflightAndRetry(t *testing.T) {
+	s := scopedFixture(t)
+	layout, err := s.Layout(ScopeMachine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sid := fixtureSecurityPolicy(t)
+	if err = os.Mkdir(filepath.Dir(layout.Directory), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{s.root, filepath.Dir(layout.Directory)} {
+		setFixtureDACL(t, dir, "D:P(A;OICI;FA;;;"+sid+")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
+	}
+	b := fixture("0.99.0")
+	self := []byte("MZ-synthetic")
+	if err = s.installProtectedMachine(b, self, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	app := filepath.Join(layout.Directory, App)
+	late := filepath.Join(layout.Directory, PayloadNames[1])
+	locked, err := openMachineFile(late)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uninstallErr := s.UninstallProtectedMachine()
+	_ = locked.Close()
+	if uninstallErr == nil {
+		t.Fatal("uninstall accepted an occupied managed file")
+	}
+	requireFile(t, app, b.Files[App])
+	if err = os.WriteFile(late, []byte("tampered"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.UninstallProtectedMachine(); err == nil {
+		t.Fatal("uninstall accepted modified bytes")
+	}
+	requireFile(t, app, b.Files[App])
+	requireFile(t, late, []byte("tampered"))
+	_, registration, err := s.integration(ScopeMachine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := registration.RegisteredLocation(); err != nil || got != layout.Directory {
+		t.Fatal("rejected uninstall changed registry", got, err)
+	}
+	if err = os.Remove(late); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.UninstallProtectedMachine(); err != nil {
+		t.Fatal("retry with a missing managed file", err)
+	}
+	rows, err := os.ReadDir(layout.Directory)
+	if err != nil || len(rows) != 0 {
+		t.Fatal("clean uninstall left files", rows, err)
+	}
+	for _, path := range []string{layout.StartLink, layout.DesktopLink} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatal("shortcut retained", err)
+		}
+	}
+	if got, err := registration.RegisteredLocation(); err != nil || got != "" {
+		t.Fatal("registry retained", got, err)
+	}
+	if err = s.installProtectedMachine(b, self, Options{}); err != nil {
+		t.Fatal("reinstall after protected uninstall", err)
+	}
+	requireFile(t, app, b.Files[App])
 }

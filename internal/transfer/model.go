@@ -10,7 +10,6 @@ import (
 )
 
 type Account struct {
-	renewal       diskSessionRenewal
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	Kind          string `json:"kind"`

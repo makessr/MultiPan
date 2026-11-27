@@ -128,7 +128,7 @@ func DefaultIntegration() (Integration, error) {
 	if e != nil {
 		return Integration{}, e
 	}
-	return Integration{RegistryPath: `Software\Microsoft\Windows\CurrentVersion\Uninstall\MultiPan`, StartLink: filepath.Join(menu, "MultiPan.lnk"), DesktopLink: filepath.Join(desktop, "MultiPan.lnk")}, nil
+	return Integration{RegistryPath: uninstallRegistryPath, StartLink: filepath.Join(menu, "MultiPan.lnk"), DesktopLink: filepath.Join(desktop, "MultiPan.lnk")}, nil
 }
 func (i Integration) Preflight(dir string) error {
 	if e := i.checkDirectory(dir); e != nil {
@@ -144,15 +144,28 @@ func (i Integration) Preflight(dir string) error {
 			return e
 		}
 		location, _, readErr := k.GetStringValue("InstallLocation")
+		if i.expectedScope == ScopeMachine && !matchesUninstallCommand(k, dir) {
+			k.Close()
+			return fmt.Errorf("系统级卸载命令不一致，未改动")
+		}
 		k.Close()
 		if readErr != nil || !strings.EqualFold(filepath.Clean(location), dir) {
 			return fmt.Errorf("已有另一位置的 MultiPan 安装登记，请先核对；未修改")
 		}
 	}
-	if _, e = readMarkerForScope(dir, i.expectedScope); e != nil && !os.IsNotExist(e) {
+	marker, e := readMarkerForScope(dir, i.expectedScope)
+	if e != nil && !os.IsNotExist(e) {
 		return e
 	}
 	for _, link := range []string{i.StartLink, i.DesktopLink} {
+		if i.expectedScope == ScopeMachine {
+			switch result := inspectPublicShortcut(link, filepath.Join(dir, App), marker.Version, false); result.Status {
+			case "missing", "matches":
+				continue
+			default:
+				return fmt.Errorf("系统级快捷方式核对未通过：%s", result.Detail)
+			}
+		}
 		if _, e := os.Stat(link); os.IsNotExist(e) {
 			continue
 		}
@@ -229,6 +242,15 @@ func removeShortcut(path, target string) error {
 		return os.Remove(path)
 	})
 }
+func uninstallCommand(dir string) string {
+	return `"` + filepath.Join(dir, Uninstaller) + `" --action uninstall`
+}
+
+func matchesUninstallCommand(k registry.Key, dir string) bool {
+	command, kind, err := k.GetStringValue("UninstallString")
+	return err == nil && kind == registry.SZ && command == uninstallCommand(dir)
+}
+
 func (i Integration) Apply(dir, version string, desktop bool) []string {
 	warnings := []string{}
 	if e := i.Preflight(dir); e != nil {
@@ -251,7 +273,7 @@ func (i Integration) Apply(dir, version string, desktop bool) []string {
 		return append(warnings, "安装登记未完成："+e.Error())
 	}
 	defer k.Close()
-	values := map[string]string{"DisplayName": "MultiPan", "DisplayVersion": version, "Publisher": "MultiPan", "InstallLocation": dir, "DisplayIcon": app, "InstallScope": string(i.expectedScope.effective()), "UninstallString": `"` + filepath.Join(dir, Uninstaller) + `" --action uninstall`}
+	values := map[string]string{"DisplayName": "MultiPan", "DisplayVersion": version, "Publisher": "MultiPan", "InstallLocation": dir, "DisplayIcon": app, "InstallScope": string(i.expectedScope.effective()), "UninstallString": uninstallCommand(dir)}
 	for n, v := range values {
 		if e = k.SetStringValue(n, v); e != nil {
 			warnings = append(warnings, "安装登记未完成："+e.Error())

@@ -125,4 +125,8 @@ func Test123PaidSharePendingReceiptBlocksResubmission(t *testing.T) {
 	if err != nil || got.ID != "pending" {
 		t.Fatal("free creation was accepted while original paid receipt is pending", got, err)
 	}
+	history := m.ShareHistory()
+	if len(history) != 1 || history[0].Action != "create" || history[0].PaidPriceFen123 != 235 || history[0].Result.URL != "" {
+		t.Fatalf("pending receipt lost the original submitted price or exposed a link: %+v", history)
+	}
 }

@@ -78,9 +78,9 @@ func verifyUpdateAuthenticode(file *os.File, flags uint32) error {
 	}
 	handle := windows.Handle(file.Fd())
 	installer, err := pe.NewFile(file)
-	if err != nil || installer.Machine != pe.IMAGE_FILE_MACHINE_AMD64 ||
+	if err != nil || (installer.Machine != pe.IMAGE_FILE_MACHINE_AMD64 && installer.Machine != pe.IMAGE_FILE_MACHINE_ARM64) ||
 		installer.Characteristics&pe.IMAGE_FILE_EXECUTABLE_IMAGE == 0 || installer.Characteristics&pe.IMAGE_FILE_DLL != 0 {
-		return errors.New("更新安装包必须为 Windows x64 可执行文件")
+		return errors.New("更新安装包必须为 Windows x64 或 ARM64 可执行文件")
 	}
 	header, ok := installer.OptionalHeader.(*pe.OptionalHeader64)
 	if !ok || header.NumberOfRvaAndSizes <= pe.IMAGE_DIRECTORY_ENTRY_SECURITY {

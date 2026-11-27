@@ -444,6 +444,7 @@ export interface RelayJob {
     "canCheck": boolean;
     "canClear": boolean;
     "canMove": boolean;
+    "moveFileIds"?: string[] | null;
     "canCheckMove": boolean;
 }
 
@@ -476,18 +477,6 @@ export interface RestoredFileForMove {
 export interface RestoredFileMoveCheck {
     "state": string;
     "message": string;
-}
-
-export interface SessionRenewalView {
-    "accountId": string;
-    "enabled": boolean;
-    "pending": boolean;
-    "busy": boolean;
-    "next": string;
-    "last": string;
-    "outcome": string;
-    "canCheck": boolean;
-    "checkedAt": string;
 }
 
 export interface ShareInput {
@@ -523,8 +512,22 @@ export interface ShareRecord {
     "accountId": string;
     "created": string;
     "action": string;
+    "paidPriceFen123"?: number;
     "result": ShareResult;
     "canLocate"?: boolean;
+    "canOpenSource"?: boolean;
+    "canRecreate"?: boolean;
+    "previousShareUrl"?: string;
+    "previousRevocation"?: ShareRevocationResult | null;
+    "keepForReplacement"?: boolean;
+}
+
+export interface ShareRecreation {
+    "receiptId": string;
+    "attemptId": string;
+    "protected": boolean;
+    "days": number;
+    "paidPriceFen123"?: number;
 }
 
 export interface ShareResult {
@@ -556,6 +559,14 @@ export interface ShareRevocationResult {
     "created": string;
     "canCheck": boolean;
     "paid123"?: boolean;
+}
+
+export interface ShareSourceLocation {
+    "accountId": string;
+    "parentId": string;
+    "targets"?: ShareTarget[] | null;
+    "baiduIds"?: string[] | null;
+    "recreation"?: ShareRecreation | null;
 }
 
 export interface ShareTarget {

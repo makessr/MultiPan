@@ -19,7 +19,7 @@ import (
 )
 
 func TestRelayQuarkPinnedOriginal(t *testing.T) {
-	for _, scenario := range []string{"success", "empty", "no-pin", "wrong-account", "duplicate-pins", "stale-revision", "missing-stamp", "bad-parent", "missing-type", "bad-pin-bytes", "json-md5-advisory", "bad-content-md5", "changed-after-target", "target-unknown", "cache-recheck", "snapshot-pass", "snapshot-changed"} {
+	for _, scenario := range []string{"success", "empty", "no-pin", "wrong-account", "duplicate-pins", "stale-revision", "missing-stamp", "bad-parent", "missing-type", "bad-pin-bytes", "json-md5-advisory", "bad-content-md5", "changed-after-target", "target-unknown", "cache-recheck", "snapshot-pass", "snapshot-changed", "snapshot-no-stamp", "snapshot-no-stamp-changed"} {
 		t.Run(scenario, func(t *testing.T) {
 			mode := scenario
 			data := []byte("夸克可信原件\x00")
@@ -57,6 +57,9 @@ func TestRelayQuarkPinnedOriginal(t *testing.T) {
 							parent = "other"
 						}
 						row := map[string]any{"fid": "q-original", "pdir_fid": parent, "file_name": "原件.txt", "file_type": 1, "dir": false, "size": len(data), "updated_at": json.Number(stamp)}
+						if strings.HasPrefix(mode, "snapshot-no-stamp") {
+							delete(row, "updated_at")
+						}
 						if mode == "missing-type" {
 							delete(row, "file_type")
 						}
@@ -88,7 +91,7 @@ func TestRelayQuarkPinnedOriginal(t *testing.T) {
 						t.Error("source content auth")
 					}
 					body := data
-					if mode == "bad-pin-bytes" || mode == "changed-after-target" && exists || mode == "cache-changed" || mode == "snapshot-changed" && gets > 1 {
+					if mode == "bad-pin-bytes" || mode == "changed-after-target" && exists || mode == "cache-changed" || strings.HasSuffix(mode, "changed") && strings.HasPrefix(mode, "snapshot-") && gets > 1 {
 						body = []byte(strings.Repeat("x", len(data)))
 					}
 					digest := md5.Sum(body)
@@ -208,7 +211,7 @@ func TestRelayQuarkPinnedOriginal(t *testing.T) {
 			expected := "verified"
 			wantPuts := 1
 			switch mode {
-			case "bad-pin-bytes", "bad-content-md5", "cache-recheck", "snapshot-changed":
+			case "bad-pin-bytes", "bad-content-md5", "cache-recheck", "snapshot-changed", "snapshot-no-stamp-changed":
 				expected = "failed"
 				wantPuts = 0
 			case "changed-after-target", "target-unknown":
@@ -224,7 +227,10 @@ func TestRelayQuarkPinnedOriginal(t *testing.T) {
 			if expected == "verified" && gets < 2 {
 				t.Error("source was not fully re-read")
 			}
-			if mode == "snapshot-pass" && gets < 3 {
+			if mode == "snapshot-no-stamp" && j.CanMove {
+				t.Error("hash-only source must never offer a move")
+			}
+			if (mode == "snapshot-pass" || mode == "snapshot-no-stamp") && gets < 3 {
 				t.Error("missing initial snapshot or later source re-read")
 			}
 			mu.Unlock()

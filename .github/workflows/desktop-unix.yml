@@ -107,6 +107,7 @@ jobs:
       - name: 构建和检查 macOS 应用包
         if: runner.os == 'macOS'
         run: |
+          set -Eeuo pipefail
           version=$(sed -n "s/^export const APP_VERSION='\([0-9.]*\)'$/\1/p" frontend/src/version.ts)
           test -n "$version"
           plutil -replace CFBundleVersion -string "$version" build/darwin/Info.plist
@@ -114,7 +115,9 @@ jobs:
           wails3 task darwin:package APP_NAME=multipan
           codesign --verify --strict --deep bin/multipan.app
           go test ./internal/appguard ./internal/transfer -run '^TestUnix' -count=1
-          ditto -c -k --sequesterRsrc --keepParent bin/multipan.app "bin/MultiPan-$version-$(go env GOARCH)-macOS.zip"
+          package="MultiPan-$version-$(go env GOARCH)-macOS.zip"
+          ditto -c -k --sequesterRsrc --keepParent bin/multipan.app "bin/$package"
+          (cd bin && shasum -a 256 "$package" > "$package.sha256")
       - name: 上传构建产物
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -124,3 +127,33 @@ jobs:
             bin/*.deb
             bin/*.deb.sha256
             bin/*-macOS.zip
+            bin/*-macOS.zip.sha256
+
+  apt-repository:
+    name: 验证双架构 APT 仓库
+    runs-on: ubuntu-24.04
+    needs: desktop
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: MultiPan-Linux-*
+          path: apt-packages
+      - name: 核对构建产物并验证 APT 签名及下载
+        shell: bash
+        run: |
+          set -u
+          sudo apt-get -o Acquire::Retries=2 update
+          sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends apt-utils gnupg
+          shopt -s nullglob
+          amd64=(apt-packages/MultiPan-Linux-amd64/*.deb)
+          arm64=(apt-packages/MultiPan-Linux-arm64/*.deb)
+          test "${#amd64[@]}" = 1
+          test "${#arm64[@]}" = 1
+          for package in "${amd64[0]}" "${arm64[0]}"; do
+            (cd -- "$(dirname -- "$package")" && sha256sum -c -- "$(basename -- "$package").sha256")
+          done
+          bash scripts/check-apt-repository.sh "${amd64[0]}" "${arm64[0]}"

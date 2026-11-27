@@ -101,7 +101,7 @@ func gyManagedShares(ctx context.Context, client *http.Client, a Account, page i
 				status = "状态未确认"
 			}
 		}
-		result.Items = append(result.Items, ManagedShare{ID: handle, Name: h.Name, Status: status, Created: managedShareTime(row.Created), Expiry: gyManagedExpiry(row.Left), CanEdit: row.Status != nil && *row.Status == 1 && h.URL != "" && h.PublicID != "", CanRevoke: row.Status != nil && *row.Status == 1, SelectionKey: managedShareSelectionKey(h)})
+		result.Items = append(result.Items, ManagedShare{ID: handle, Name: h.Name, Status: status, Created: managedShareTime(row.Created), Expiry: gyManagedExpiry(row.Left), CanEdit: row.Status != nil && *row.Status == 1 && h.URL != "" && h.PublicID != "", CanRevoke: row.Status != nil && *row.Status == 1, replacementAvailable: row.Status != nil && *row.Status == 1, SelectionKey: managedShareSelectionKey(h)})
 	}
 	return result, nil
 }

@@ -260,7 +260,7 @@ func installForScope(dir string, b Bundle, self []byte, opts Options, scope Scop
 			return errors.New("受保护的安装流程仅用于机器范围")
 		}
 		defer opts.protected.close()
-		if err = opts.protected.prepare(dir); err != nil {
+		if err = opts.protected.prepare(dir, true); err != nil {
 			return err
 		}
 	}

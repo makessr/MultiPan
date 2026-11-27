@@ -26,9 +26,6 @@ type DownloadJob struct {
 }
 
 func downloadScope(a Account) string {
-	if a.Kind == "pan123" && a.Endpoint == Pan123API && a.renewal.Scope != "" {
-		return a.renewal.Scope
-	}
 	sum := sha256.Sum256([]byte(strings.Join([]string{a.Kind, a.Endpoint, a.Username, a.Secret}, "\x00")))
 	return hex.EncodeToString(sum[:])
 }

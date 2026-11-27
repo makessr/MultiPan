@@ -14,6 +14,16 @@ func (s *DesktopService) LocateLanzouShareReceipt(accountID, receiptID string) (
 	return s.manager.LanzouShareLocation(accountID, receiptID)
 }
 
+func (s *DesktopService) LocateCreatedShareSource(accountID, receiptID string) (transfer.ShareSourceLocation, error) {
+	return s.manager.CreatedShareSourceLocation(accountID, receiptID)
+}
+
+func (s *DesktopService) RecreateCloudShare(receiptID, attemptID string, in transfer.ShareInput) (transfer.ShareResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return s.manager.RecreateShare(ctx, receiptID, attemptID, in)
+}
+
 func (s *DesktopService) ManagedCloudShares(accountID string, page int) (transfer.ManagedSharePage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -109,6 +119,12 @@ func (s *DesktopService) ValidateManagedCloudShareRevokeResume(handles []string)
 	return s.manager.ValidateShareRevocationResume(ctx, handles)
 }
 
+func (s *DesktopService) RevokePreviousCloudShare(accountID, replacementID, expectedURL string) (transfer.ShareRevocationResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+	defer cancel()
+	return s.manager.RevokePreviousShare(ctx, accountID, replacementID, expectedURL)
+}
+
 func (s *DesktopService) RevokeManagedCloudShare(handle string) (transfer.ShareRevocationResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -128,6 +144,10 @@ func (s *DesktopService) ClearManagedCloudShareRevokes(accountID string) (int, e
 
 func (s *DesktopService) ClearCloudShareHistory() (int, error) {
 	return s.manager.ClearShareHistory()
+}
+
+func (s *DesktopService) ClearSelectedCloudShareHistory(ids []string) (int, error) {
+	return s.manager.ClearSelectedShareHistory(ids)
 }
 
 func (s *DesktopService) ShareCloudEntry(in transfer.ShareInput) (transfer.ShareResult, error) {

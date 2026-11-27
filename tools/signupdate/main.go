@@ -29,7 +29,7 @@ func run() error {
 	installer := flag.String("installer", "", "final Windows installer file")
 	version := flag.String("version", "", "release version")
 	keyFile := flag.String("private-key", "", "local PKCS#8 Ed25519 private key (PEM)")
-	output := flag.String("output-dir", "", "new directory for update.json and update.sig")
+	output := flag.String("output-dir", "", "new directory for signed update metadata")
 	validity := flag.Duration("validity", 7*24*time.Hour, "manifest validity, up to 720h")
 	requireAuthenticode := flag.Bool("require-authenticode", false, "require a trusted embedded Windows installer signature before signing the manifest")
 	flag.Parse()
@@ -53,16 +53,20 @@ func run() error {
 		return err
 	}
 	defer asset.Close()
+	arch, err := installation.ExecutableArchitecture(asset)
+	if err != nil {
+		return err
+	}
 	key, err := readPublisherKey(*keyFile)
 	if err != nil {
 		return err
 	}
 	defer clear(key)
-	raw, signature, err := installation.SignUpdateManifest(asset, filepath.Base(*installer), *version, time.Now(), *validity, key)
+	raw, signature, err := installation.SignUpdateManifest(asset, filepath.Base(*installer), *version, arch, time.Now(), *validity, key)
 	if err != nil {
 		return err
 	}
-	if err := writeSignedUpdate(dir, raw, signature); err != nil {
+	if err := writeSignedUpdate(dir, arch, raw, signature); err != nil {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(map[string]string{
@@ -116,7 +120,8 @@ func readPublisherKey(path string) (ed25519.PrivateKey, error) {
 	return key, nil
 }
 
-func writeSignedUpdate(dir string, raw, signature []byte) error {
+func writeSignedUpdate(dir, arch string, raw, signature []byte) error {
+	manifestName, signatureName := installation.UpdateAssetNames(arch)
 	if err := os.Mkdir(dir, 0700); err != nil {
 		return err
 	}
@@ -134,7 +139,7 @@ func writeSignedUpdate(dir string, raw, signature []byte) error {
 	for _, output := range []struct {
 		name string
 		data []byte
-	}{{installation.UpdateManifestName, raw}, {installation.UpdateSignatureName, signature}} {
+	}{{manifestName, raw}, {signatureName, signature}} {
 		path := filepath.Join(dir, output.name)
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {

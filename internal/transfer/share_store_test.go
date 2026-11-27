@@ -232,17 +232,66 @@ func TestShareCheckpointEncryptedRestartAndClear(t *testing.T) {
 		t.Fatal("changed-source receipt exposed")
 	}
 	restarted.accounts[0] = a
+	for _, ids := range [][]string{nil, {"receipt", "missing"}, {"receipt", "receipt"}} {
+		if n, e := restarted.ClearSelectedShareHistory(ids); e == nil || n != 0 || len(restarted.shares) != 1 {
+			t.Fatal("invalid selection must preserve all receipts", ids, n, e)
+		}
+	}
 	restarted.path = t.TempDir() // Failed atomic replacement must roll back cleanup.
-	if n, e := restarted.ClearShareHistory(); e == nil || n != 0 || len(restarted.shares) != 1 {
+	if n, e := restarted.ClearSelectedShareHistory([]string{"receipt"}); e == nil || n != 0 || len(restarted.shares) != 1 {
 		t.Fatal("failed clear lost history")
 	}
 	restarted.path = statePath
-	if n, e := restarted.ClearShareHistory(); e != nil || n != 1 {
+	if n, e := restarted.ClearSelectedShareHistory([]string{"receipt"}); e != nil || n != 1 {
 		t.Fatal(n, e)
 	}
 	loaded, err := NewManager(statePath, nil)
 	if err != nil || len(loaded.ShareHistory()) != 0 {
 		t.Fatal("clear not durable", err)
+	}
+}
+
+func TestCreatedShareSourceLocation(t *testing.T) {
+	m, err := NewManager(filepath.Join(t.TempDir(), "state.enc"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := Account{ID: "original-account", Kind: "quark", Endpoint: QuarkAPI, Secret: "fixture"}
+	b := a
+	b.ID = "other-account"
+	m.accounts = []Account{a, b}
+	op := &shareOperation{
+		in:     ShareInput{AccountID: a.ID, ParentID: "source-folder", EntryID: "source-file", Name: "source.txt", Action: "create"},
+		result: ShareResult{ID: "creation-receipt", Kind: a.Kind, State: "ready"},
+		scope:  downloadScope(a),
+	}
+	m.shares[op.result.ID] = op
+	location, err := m.CreatedShareSourceLocation(a.ID, op.result.ID)
+	if err != nil || location.AccountID != a.ID || location.ParentID != op.in.ParentID || !m.ShareHistory()[0].CanOpenSource {
+		t.Fatal(location, err)
+	}
+	if len(location.Targets) != 1 || location.Targets[0].ID != "source-file" || len(location.BaiduIDs) != 0 {
+		t.Fatalf("unexpected original selection: %#v", location)
+	}
+	location.Targets[0].ID = "changed"
+	if other, err := m.CreatedShareSourceLocation(a.ID, op.result.ID); err != nil || other.Targets[0].ID != "source-file" {
+		t.Fatal("receipts and returned selections must remain independent", err)
+	}
+	if _, err = m.CreatedShareSourceLocation(b.ID, op.result.ID); err == nil {
+		t.Fatal("receipt was accepted for a different account")
+	}
+	op.result.State = "failed"
+	if _, err = m.CreatedShareSourceLocation(a.ID, op.result.ID); err != nil {
+		t.Fatal("definitive failed creation should still expose its source directory", err)
+	}
+	op.result.State = "unknown"
+	if _, err = m.CreatedShareSourceLocation(a.ID, op.result.ID); err == nil || m.ShareHistory()[0].CanOpenSource {
+		t.Fatal("uncertain receipt exposed its source")
+	}
+	op.result.State = "ready"
+	m.accounts[0].Secret = "changed-login"
+	if _, err = m.CreatedShareSourceLocation(a.ID, op.result.ID); err == nil || m.ShareHistory()[0].CanOpenSource {
+		t.Fatal("receipt survived an account source change")
 	}
 }
 
@@ -274,5 +323,77 @@ func TestShareRestoreRejectsCorruptReceiptsWithoutOverwrite(t *testing.T) {
 		if !bytes.Equal(before, after) {
 			t.Fatal("corrupt data overwritten")
 		}
+	}
+}
+
+func TestCreatedShareSourceLocationBaiduIdentity(t *testing.T) {
+	m, err := NewManager(filepath.Join(t.TempDir(), "state.enc"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := Account{ID: "baidu-account", Kind: "baidu", Endpoint: BaiduAPI, Secret: "fixture"}
+	m.accounts = []Account{a}
+	op := &shareOperation{
+		in: ShareInput{
+			AccountID: a.ID, ParentID: "/shared", EntryID: "/shared/first", Name: "first", Action: "create", Password: "AB12",
+			Targets: []ShareTarget{
+				{ID: "/shared/first", Name: "first"},
+				{ID: "/shared/second", Name: "second", Folder: true},
+			},
+		},
+		result: ShareResult{ID: "saved", Kind: a.Kind, State: "ready"},
+		scope:  downloadScope(a),
+	}
+	m.shares[op.result.ID] = op
+	for _, test := range []struct {
+		recorded string
+		want     int
+	}{
+		{"", 0}, {"123", 0}, {"[123,456]", 0}, {"[\"123\",\"123\"]", 0},
+		{baiduShareSources([]string{"9007199254740993123", "456"}), 2},
+	} {
+		op.baiduSource = test.recorded
+		location, err := m.CreatedShareSourceLocation(a.ID, op.result.ID)
+		if err != nil || location.ParentID != "/shared" || len(location.Targets) != test.want || len(location.BaiduIDs) != test.want {
+			t.Fatalf("source %q: unexpected result %#v, %v", test.recorded, location, err)
+		}
+	}
+}
+
+func TestShareCleanupPreservesOriginalForReplacement(t *testing.T) {
+	m, err := NewManager(filepath.Join(t.TempDir(), "state.enc"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	account := Account{ID: "account", Kind: "quark", Endpoint: QuarkAPI, Secret: "fixture"}
+	m.accounts = []Account{account}
+	for _, id := range []string{"old", "new", "unrelated"} {
+		op := &shareOperation{
+			in:    ShareInput{AccountID: account.ID, ParentID: "0", EntryID: "file", Name: "photo", Action: "create"},
+			scope: downloadScope(account), key: id, share: "share-" + id, created: time.Now(),
+			result: ShareResult{ID: id, Kind: "quark", State: "ready", URL: "https://pan.quark.cn/s/" + id},
+		}
+		if id == "new" {
+			op.recreatedFrom = "old"
+			op.result.State, op.result.URL = "unknown", ""
+		}
+		op.saved = snapshotShare(op)
+		m.shares[id] = op
+	}
+	if n, err := m.ClearSelectedShareHistory([]string{"old", "unrelated"}); err == nil || n != 0 || len(m.shares) != 3 {
+		t.Fatalf("cleanup broke the pending replacement: %d %v (receipts %d)", n, err, len(m.shares))
+	}
+	newShare := m.shares["new"]
+	newShare.result.State, newShare.result.URL = "ready", "https://pan.quark.cn/s/new"
+	newShare.saved = snapshotShare(newShare)
+	if n, err := m.ClearSelectedShareHistory([]string{"old"}); err == nil || n != 0 {
+		t.Fatalf("cleanup discarded the old link needed for revocation: %d %v", n, err)
+	}
+	if n, err := m.ClearSelectedShareHistory([]string{"new", "unrelated"}); err != nil || n != 2 {
+		t.Fatalf("could not clear the replacement and unrelated receipt: %d %v", n, err)
+	}
+	if n, err := m.ClearSelectedShareHistory([]string{"old"}); err != nil || n != 1 {
+		t.Fatalf("original remained locked after the replacement receipt was removed: %d %v", n, err)
 	}
 }

@@ -5,7 +5,7 @@ import {newShareCode,shareText,shareLink} from './shareText'
 import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import type {CloudEntry,ShareInput,ShareResult} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accountId:string;parentId:string;kind:string;entries:CloudEntry[];initialSelection:CloudEntry[]}>()
-const emit=defineEmits<{close:[]}>()
+const emit=defineEmits<{close:[];receipt:[id:string]}>()
 const key=(e:CloudEntry)=>(e.folder?'d:':'f:')+e.id
 const items=props.entries.map(e=>({...e}))
 const selected=ref([...new Set(props.initialSelection.map(key))].filter(k=>items.some(e=>key(e)===k))),protectedShare=ref(props.kind==='baidu'),password=ref(newShareCode()),days=ref(0),autoFill=ref(true)
@@ -52,6 +52,11 @@ async function submit(){
 async function check(row:Row){if(busy.value||disposed||!row.result?.id||!row.result.canCheck)return;busy.value=true;row.error='';try{row.result=await api.CheckCloudShare(row.result.id);row.state=['ready','failed'].includes(row.result.state)?'done':'uncertain'}catch(e){row.error=String(e)}finally{busy.value=false}}
 async function copy(linksOnly=false){if(busy.value||disposed)return;const text=ready.value.map(r=>shareText(r.result!,linksOnly,autoFill.value)).filter(Boolean).join('\n\n');if(!text)return;busy.value=true;try{await api.CopyDownloadReport(text);status.value='已复制已取得的分享；待确认和未开始项未包含。'}catch(e){error.value=String(e)}finally{busy.value=false}}
 function resultLink(row:Row){return row.result?shareLink(row.result,autoFill.value):''}
+function openReceipt(row:Row){
+ if(busy.value||disposed||!rows.value.includes(row)||!row.result?.id)return
+ if(remaining.value&&!window.confirm(`还有 ${remaining.value} 项未开始。打开回执会关闭这个批次，未开始项不会提交。继续打开回执吗？`))return
+ emit('receipt',row.result.id)
+}
 function rowLabel(row:Row){return row.state==='queued'?'未开始':row.state==='running'?'处理中':row.state==='uncertain'?'结果待确认':row.result?.state==='ready'?'已取得分享':'未取得分享'}
 onMounted(()=>nextTick(()=>dialog.value?.focus()))
 onUnmounted(()=>{disposed=true;stop.value=true})
@@ -69,7 +74,7 @@ onUnmounted(()=>{disposed=true;stop.value=true})
   <template v-else><div class="batch-share-progress"><strong>已取得 {{ready.length}} 个链接 · 未开始 {{remaining}} 组</strong><button v-if="busy&&processing" class="secondary" :disabled="stop" @click="stop=true">{{stop?'正在停止…':'停止后续项目'}}</button><button v-else-if="remaining" class="primary" :disabled="busy||unresolved" @click="run">继续未开始项目</button></div>
    <p v-if="preflighting" role="status">正在核对本轮所选项目，尚未创建链接。</p>
    <p v-if="unresolved" class="banner error">存在待确认结果，已停止后续项目。请检查原操作结果或到分享记录页核对，不要重新创建。</p>
-   <ul class="batch-share-items batch-share-results"><li v-for="row in rows" :key="key(row.entry)"><strong>{{row.entry.name}}</strong><span>{{rowLabel(row)}}</span><p v-if="row.result?.message">{{row.result.message}}</p><div v-if="row.result?.state==='ready'&&resultLink(row)" class="batch-share-link"><label>分享链接<input :value="resultLink(row)" readonly :aria-label="row.entry.name+' 分享链接'" @focus="($event.target as HTMLInputElement).select()"/></label><p>提取码：{{row.result.password||'无'}}<template v-if="row.result.expiry"> · {{row.result.expiry}}</template></p></div><p v-if="row.error" role="alert">{{row.error}}</p><button v-if="row.result?.canCheck" class="secondary" :disabled="busy" @click="check(row)">检查原操作结果</button></li></ul>
+   <ul class="batch-share-items batch-share-results"><li v-for="row in rows" :key="key(row.entry)"><strong>{{row.entry.name}}</strong><span>{{rowLabel(row)}}</span><p v-if="row.result?.message">{{row.result.message}}</p><div v-if="row.result?.state==='ready'&&resultLink(row)" class="batch-share-link"><label>分享链接<input :value="resultLink(row)" readonly :aria-label="row.entry.name+' 分享链接'" @focus="($event.target as HTMLInputElement).select()"/></label><p>提取码：{{row.result.password||'无'}}<template v-if="row.result.expiry"> · {{row.result.expiry}}</template></p></div><p v-if="row.error" role="alert">{{row.error}}</p><button v-if="row.result?.canCheck" class="secondary" :disabled="busy" @click="check(row)">检查原操作结果</button><button v-if="row.result?.id" class="secondary" :disabled="busy" @click="openReceipt(row)">查看本机回执</button></li></ul>
    <label v-if="kind==='baidu'||kind==='guangya'" class="share-switch"><input v-model="autoFill" type="checkbox" :disabled="busy"/>复制链接自动填充提取码</label><div class="batch-share-footer"><button class="primary" :disabled="busy||!ready.length" @click="copy(false)">复制分享信息</button><button class="secondary" :disabled="busy||!ready.length" @click="copy(true)">复制链接</button></div>
   </template>
   <p v-if="error" class="banner error" role="alert">{{error}}</p><p v-if="status" role="status">{{status}}</p><p class="preview-note">已提交项目的回执加密保存在本机，重启后在分享记录中查看；未开始项目不会自动恢复。停止后续项目不会撤销已提交操作。关闭窗口后本批选择不保留。</p>

@@ -20,7 +20,7 @@ import (
 // The caller must obtain confirmation before calling it.
 func (u VerifiedUpdate) LaunchSignedInstaller(ctx context.Context, savedPath string) (<-chan struct{}, error) {
 	m := u.manifest
-	if u.origin == nil || !m.Expires.After(time.Now()) || !filepath.IsAbs(savedPath) || filepath.Base(savedPath) != m.Asset {
+	if m.Platform != InstallerPlatform(runtime.GOARCH) || u.origin == nil || !m.Expires.After(time.Now()) || !filepath.IsAbs(savedPath) || filepath.Base(savedPath) != m.Asset {
 		return nil, errors.New("需要本次下载的安装包和未过期的更新清单")
 	}
 	if windows.GetCurrentProcessToken().IsElevated() {
@@ -72,6 +72,9 @@ func (u VerifiedUpdate) LaunchSignedInstaller(ctx context.Context, savedPath str
 	}
 	defer file.Close()
 	if err := u.VerifyInstaller(file); err != nil {
+		return nil, err
+	}
+	if err := u.VerifyInstallerArchitecture(file); err != nil {
 		return nil, err
 	}
 	if err := verifyUpdateAuthenticode(file, windows.WTD_MOTW); err != nil {

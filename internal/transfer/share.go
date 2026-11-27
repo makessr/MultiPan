@@ -16,6 +16,10 @@ import (
 )
 
 type ShareInput struct {
+	recreateReceiptID      string
+	recreateAttemptID      string
+	expectedBaiduSources   string
+	previousShareURL       string
 	expectedLanzouURL      string        // initial checked directory edit only
 	expectedLanzouPassword string        // preflight value for the original link, including an empty code
 	lanzouReceiptID        string        // resolve the original item while holding the share lock
@@ -74,6 +78,7 @@ type ShareResult struct {
 	CanCheck bool   `json:"canCheck"`
 }
 type shareOperation struct {
+	recreatedFrom       string
 	superseded          bool
 	settingsCheckpoint  func(managedShareHandle) error
 	in                  ShareInput
@@ -97,11 +102,57 @@ type shareOperation struct {
 // ShareRecord is a local receipt, not a listing of all shares on a provider.
 // Provider operation IDs, source hashes and authentication never leave Manager.
 type ShareRecord struct {
-	AccountID string      `json:"accountId"`
-	Created   time.Time   `json:"created"`
-	Action    string      `json:"action"`
-	Result    ShareResult `json:"result"`
-	CanLocate bool        `json:"canLocate,omitempty"`
+	AccountID          string                 `json:"accountId"`
+	Created            time.Time              `json:"created"`
+	Action             string                 `json:"action"`
+	PaidPriceFen123    int                    `json:"paidPriceFen123,omitempty"`
+	Result             ShareResult            `json:"result"`
+	CanLocate          bool                   `json:"canLocate,omitempty"`
+	CanOpenSource      bool                   `json:"canOpenSource,omitempty"`
+	CanRecreate        bool                   `json:"canRecreate,omitempty"`
+	PreviousShareURL   string                 `json:"previousShareUrl,omitempty"`
+	PreviousRevocation *ShareRevocationResult `json:"previousRevocation,omitempty"`
+	KeepForReplacement bool                   `json:"keepForReplacement,omitempty"`
+}
+
+type ShareSourceLocation struct {
+	AccountID  string           `json:"accountId"`
+	ParentID   string           `json:"parentId"`
+	Targets    []ShareTarget    `json:"targets,omitempty"`
+	BaiduIDs   []string         `json:"baiduIds,omitempty"`
+	Recreation *ShareRecreation `json:"recreation,omitempty"`
+}
+
+func canLocateCreatedShare(a Account, op *shareOperation) bool {
+	return op != nil && !op.running && (op.result.State == "ready" || op.result.State == "failed") &&
+		op.in.Action == "create" && op.in.AccountID == a.ID && a.ID != "" && op.result.Kind == a.Kind &&
+		downloadScope(a) == op.scope && validateShare(a, op.in) == nil
+}
+
+// CreatedShareSourceLocation reads the directory saved with a local creation receipt.
+func (m *Manager) CreatedShareSourceLocation(accountID, receiptID string) (ShareSourceLocation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	op := m.shares[receiptID]
+	if m.closing || !canLocateCreatedShare(m.downloadAccountLocked(accountID), op) {
+		return ShareSourceLocation{}, errors.New("分享回执或账号来源已变化，无法打开原目录")
+	}
+	if result, overlaid := m.shareRevocationOverlayLocked(op); overlaid && result.State == "unknown" {
+		return ShareSourceLocation{}, errors.New("原分享结果待核对，暂不能定位")
+	}
+	location := ShareSourceLocation{AccountID: accountID, ParentID: op.in.ParentID}
+	if op.result.Kind == "baidu" {
+		location.BaiduIDs = baiduReceiptSourceIDs(op)
+		if len(location.BaiduIDs) == 0 {
+			return location, nil
+		}
+	}
+	location.Targets = append([]ShareTarget(nil), shareTargets(op.in)...)
+	location.Recreation = &ShareRecreation{
+		ReceiptID: receiptID, AttemptID: newID(), Protected: op.in.Password != "", Days: op.in.Days,
+		PaidPriceFen123: op.in.PaidPriceFen123,
+	}
+	return location, nil
 }
 
 type LanzouShareLocation struct {
@@ -134,6 +185,7 @@ func (m *Manager) ShareHistory() []ShareRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rows := make([]ShareRecord, 0, len(m.shares))
+	retained := m.shareSourcesInUseLocked()
 	for _, op := range m.shares {
 		result := op.result
 		if overlaid, blocked := m.shareRevocationOverlayLocked(op); blocked {
@@ -154,8 +206,19 @@ func (m *Manager) ShareHistory() []ShareRecord {
 		case "create", "get", "password", "settings":
 			action = op.in.Action
 		}
-		rows = append(rows, ShareRecord{AccountID: op.in.AccountID, Created: op.created, Action: action, Result: result,
-			CanLocate: result.State == "ready" && canLocateLanzouShare(a, op)})
+		row := ShareRecord{AccountID: op.in.AccountID, Created: op.created, Action: action, Result: result,
+			CanLocate:          result.State == "ready" && canLocateLanzouShare(a, op),
+			CanOpenSource:      result.State != "unknown" && canLocateCreatedShare(a, op),
+			KeepForReplacement: retained[op.result.ID]}
+		row.PreviousRevocation = m.previousShareRevocationLocked(a, op)
+		if previous, _, ok := m.previousShareLocked(a, op); ok && row.PreviousRevocation == nil {
+			row.PreviousShareURL = previous.url
+		}
+		row.CanRecreate = row.CanOpenSource && (a.Kind != "baidu" || len(baiduReceiptSourceIDs(op)) > 0)
+		if action == "create" && result.Kind == "pan123" {
+			row.PaidPriceFen123 = op.in.PaidPriceFen123
+		}
+		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Created.Equal(rows[j].Created) {
@@ -487,6 +550,12 @@ func (m *Manager) shareEntry(ctx context.Context, in ShareInput, strictTarget bo
 		}
 		in.ParentID, in.EntryID, in.Name, in.Folder = original.in.ParentID, original.in.EntryID, original.in.Name, original.in.Folder
 	}
+	if in.recreateReceiptID != "" {
+		if err := m.bindShareRecreationLocked(a, &in); err != nil {
+			m.mu.Unlock()
+			return ShareResult{}, err
+		}
+	}
 	if err := validateShare(a, in); err != nil {
 		m.mu.Unlock()
 		return ShareResult{}, err
@@ -509,8 +578,24 @@ func (m *Manager) shareEntry(ctx context.Context, in ShareInput, strictTarget bo
 		keyInput.Handle = ""
 	}
 	raw, _ := json.Marshal(keyInput)
+	if in.recreateReceiptID != "" {
+		raw, _ = json.Marshal([]string{"recreate", in.recreateReceiptID, in.recreateAttemptID})
+	}
 	sum := sha256.Sum256(append([]byte(downloadScope(a)), raw...))
 	key := hex.EncodeToString(sum[:])
+	if in.recreateReceiptID != "" {
+		for _, op := range m.shares {
+			if op.key != key {
+				continue
+			}
+			result := op.result
+			if overlaid, ok := m.shareRevocationOverlayLocked(op); ok {
+				result = overlaid
+			}
+			m.mu.Unlock()
+			return result, nil
+		}
+	}
 	for _, op := range m.shares {
 		if a.Kind == "lanzou" && op.superseded {
 			continue // A fresh read or edit must use the current cloud settings.
@@ -576,7 +661,7 @@ func (m *Manager) shareEntry(ctx context.Context, in ShareInput, strictTarget bo
 		m.shares = map[string]*shareOperation{}
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	op := &shareOperation{in: in, scope: downloadScope(a), key: key, created: time.Now(), running: true, cancel: cancel, result: ShareResult{ID: newID(), Kind: a.Kind, Name: in.Name, Days: in.Days, State: "working", Message: "正在处理分享，请勿重复提交"}}
+	op := &shareOperation{recreatedFrom: in.recreateReceiptID, in: in, scope: downloadScope(a), key: key, created: time.Now(), running: true, cancel: cancel, result: ShareResult{ID: newID(), Kind: a.Kind, Name: in.Name, Days: in.Days, State: "working", Message: "正在处理分享，请勿重复提交"}}
 	if in.Action == "settings" {
 		op.share = in.EntryID
 	}
@@ -700,6 +785,9 @@ func (m *Manager) runShare(ctx context.Context, a Account, op *shareOperation, c
 	}
 	if len(op.in.Targets) > 1 {
 		result.Name += " 等" + fmt.Sprint(len(op.in.Targets)) + "项（合并分享）"
+	}
+	if !checkOnly && op.in.previousShareURL != "" && result.State == "ready" && result.URL == op.in.previousShareURL {
+		result.Message = "网盘返回了原分享链接，请以此链接和当前显示的设置为准"
 	}
 	result.Kind = a.Kind
 	result.Days = op.in.Days

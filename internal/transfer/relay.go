@@ -19,8 +19,8 @@ import (
 
 const relayMaxFile int64 = 8 << 30
 const relayMaxTotal int64 = 32 << 30
-const relaySnapshotMaxFile = 2 << 30
-const relaySnapshotMaxBatch = 4 << 30
+const relaySnapshotMaxFile = relayMaxFile
+const relaySnapshotMaxBatch = 2 * relaySnapshotMaxFile
 
 type RelayInput struct {
 	SourceAccountID string `json:"sourceAccountId"`
@@ -55,6 +55,7 @@ type RelayJob struct {
 	CanCheck        bool      `json:"canCheck"`
 	CanClear        bool      `json:"canClear"`
 	CanMove         bool      `json:"canMove"`
+	MoveFileIDs     []string  `json:"moveFileIds,omitempty"`
 	CanCheckMove    bool      `json:"canCheckMove"`
 }
 type diskRelay struct {
@@ -117,7 +118,9 @@ func validRelayAccounts(d diskRelay) bool {
 	if d.Input.SourceAccountID != d.Input.TargetAccountID {
 		return true
 	}
-	return d.SourceKind == "quark" && d.TargetKind == "quark" && d.SourceScope == d.TargetScope &&
+	sameProvider := d.SourceKind == d.TargetKind &&
+		(d.SourceKind == "quark" || d.SourceKind == "guangya" && !d.Folder && d.ParentJobID == "")
+	return sameProvider && d.SourceScope == d.TargetScope &&
 		d.Input.ParentID != d.Input.DestinationID && d.Input.EntryID != d.Input.DestinationID &&
 		d.TargetFileID != d.Input.EntryID && d.TargetFolderID != d.Input.EntryID
 }
@@ -188,6 +191,7 @@ func (m *Manager) restoreRelays(rows []diskRelay) error {
 		j.CanClear = false
 		j.CanMove = false
 		j.CanCheckMove = false
+		j.MoveFileIDs = nil
 		j.Phase = ""
 	}
 	if e := validateRelayTreeParents(rows); e != nil {
@@ -212,7 +216,7 @@ func (m *Manager) RelayJobs() []RelayJob {
 	for _, d := range m.relays {
 		j := d.Job
 		j.SourcePath = d.Input.EntryID
-		if relayMoveToRecycle(d.SourceKind) {
+		if d.SourceKind == "pan123" || d.SourceKind == "quark" {
 			j.SourcePath = trashDirectoryPath(d.Input.ParentID, d.Input.Name)
 		}
 		j.SourceKind = d.SourceKind
@@ -229,7 +233,10 @@ func (m *Manager) RelayJobs() []RelayJob {
 		j.CanResume = same && m.relayParentReadyLocked(d) && !active && !d.Submitted && (j.State == "paused" || j.State == "failed")
 		j.CanCheck = same && !active && d.Submitted && j.State == "unknown"
 		j.CanClear = !active && (j.State == "verified" || !d.Submitted && (j.State == "paused" || j.State == "failed"))
-		j.CanMove = same && m.relayActive == "" && relayMoveEligible(d) && !d.Move.Submitted
+		j.CanMove = same && m.relayActive == "" && d.ParentJobID == "" && d.SourceScope != d.TargetScope && relayMoveEligible(d) && !d.Move.Submitted
+		if same && m.relayActive == "" && !m.closing && d.SourceScope != d.TargetScope && d.Folder && d.ParentJobID == "" {
+			j.MoveFileIDs = m.relayFolderMoveFilesLocked(d, a, b)
+		}
 		j.CanCheckMove = same && m.relayActive == "" && j.State == "move_unknown" && d.Move.Submitted
 		if j.State == "moved" {
 			j.CanClear = !active
@@ -259,9 +266,14 @@ func (m *Manager) queueRelays(ctx context.Context, inputs []RelayInput, snapshot
 	if len(inputs) < 1 || len(inputs) > 20 {
 		return 0, errors.New("每批中转复制请选择1至20个文件")
 	}
+	var total int64
 	for _, in := range inputs {
 		if !validRelayInput(in) {
 			return 0, errors.New("中转文件信息无效；单文件最多8GiB，仅支持文件")
+		}
+		total += in.Size
+		if snapshot && (in.Size > relaySnapshotMaxFile || total > relaySnapshotMaxBatch) {
+			return 0, errors.New("原件预读单文件最多 8 GiB，整批最多 16 GiB，未创建队列")
 		}
 	}
 	m.folderMutationMu.Lock()
@@ -280,8 +292,8 @@ func (m *Manager) queueRelays(ctx context.Context, inputs []RelayInput, snapshot
 	if closing || !validRelaySource(a, inputs[0]) || !validRelayTarget(b, inputs[0].DestinationID) {
 		return 0, errors.New("来源或目标账号不支持当前文件中转")
 	}
-	if a.ID == b.ID && (a.Kind != "quark" || inputs[0].ParentID == inputs[0].DestinationID) {
-		return 0, errors.New("同账号中转仅支持夸克文件复制，请选择不同的目标目录")
+	if a.ID == b.ID && (a.Kind != "quark" && a.Kind != "guangya" || inputs[0].ParentID == inputs[0].DestinationID) {
+		return 0, errors.New("同账号文件复制支持夸克和光鸭，请选择不同的目标目录")
 	}
 	if snapshot && !relayUsesOriginalPin(a.Kind) {
 		return 0, errors.New("读取网盘原件模式目前支持夸克和光鸭来源")
@@ -308,14 +320,13 @@ func (m *Manager) queueRelays(ctx context.Context, inputs []RelayInput, snapshot
 	batch := newID()
 	rows := []diskRelay{}
 	seen, names := map[string]bool{}, map[string]bool{}
-	var total int64
 	for _, in := range inputs {
-		if in.SourceAccountID != a.ID || in.TargetAccountID != b.ID || in.ParentID != inputs[0].ParentID || in.DestinationID != inputs[0].DestinationID || seen[in.EntryID] || names[strings.ToLower(in.Name)] {
+		if in.SourceAccountID != a.ID || in.TargetAccountID != b.ID || in.ParentID != inputs[0].ParentID || in.DestinationID != inputs[0].DestinationID ||
+			a.ID == b.ID && in.EntryID == in.DestinationID || seen[in.EntryID] || names[strings.ToLower(in.Name)] {
 			return 0, errors.New("中转批次来源/目标不一致或重复")
 		}
 		seen[in.EntryID] = true
 		names[strings.ToLower(in.Name)] = true
-		total += in.Size
 		var src CloudEntry
 		for _, r := range source.Entries {
 			if r.ID == in.EntryID && r.Name == in.Name && !r.Folder && r.Size != nil && *r.Size == in.Size {
@@ -324,8 +335,8 @@ func (m *Manager) queueRelays(ctx context.Context, inputs []RelayInput, snapshot
 		}
 		tag := relaySourceVersion(a.Kind, src)
 		if snapshot {
-			if !relaySnapshotEligible(a.Kind, src) || total > relaySnapshotMaxBatch {
-				return 0, errors.New("原件缺少可靠身份、大小或必要版本，或超过单文件 2 GiB／整批 4 GiB 限制，整批未创建")
+			if !relaySnapshotEligible(a.Kind, src) {
+				return 0, errors.New("原件缺少可靠身份、大小或必要版本，整批未创建")
 			}
 			tag = src.revision
 		} else if relayUsesOriginalPin(a.Kind) {

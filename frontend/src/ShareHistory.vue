@@ -1,33 +1,43 @@
 <script setup lang="ts">
-import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
+import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
+import {Browser} from '@wailsio/runtime'
+import {trapDialogFocus} from './dialogFocus'
 import CloudShareList from './CloudShareList.vue'
 import LanzouFolderShares from './LanzouFolderShares.vue'
 import BatchManagedShareReadDialog from './BatchManagedShareReadDialog.vue'
 import BatchShareExpiryDialog from './BatchShareExpiryDialog.vue'
 import * as api from '../bindings/multipan/internal/desktop/desktopservice'
 import {shareText,shareLink,shareLinkSearchKey,searchShareLinks} from './shareText'
-import {shareAccountLabel,shareProviderName as cloudName} from './shareAccounts'
-import type {Account,LanzouShareLocation,ShareRecord} from '../bindings/multipan/internal/transfer/models'
+import {shareAccountLabel,shareProviderName as cloudName,shareWebsite} from './shareAccounts'
+import type {Account,LanzouShareLocation,ShareRecord,ShareSourceLocation} from '../bindings/multipan/internal/transfer/models'
 const props=defineProps<{accounts:Account[];blocked?:boolean;refreshKey?:string;reviewTarget?:{kind:string;accountId:string;receiptId:string}|null}>()
-const emit=defineEmits<{mutation:[active:boolean];files:[]}>()
+const emit=defineEmits<{mutation:[active:boolean];files:[];source:[location:ShareSourceLocation,recreate:boolean]}>()
 const records=ref<ShareRecord[]>([]),busy=ref(false),error=ref(''),message=ref(''),query=ref(''),kind=ref(''),status=ref(''),autoFill=ref(true)
 const action=ref('')
 const accountFilter=ref('')
 const page=ref(1)
 const pageSize=50
 const batchCheck=ref<{done:number;total:number;stop:boolean}|null>(null)
-const checkedOnPage=ref(new Set<string>())
+const checkedReceipts=ref(new Set<string>())
+const checkAccount=ref('')
 const actionLabels=new Map([
  ['create','创建分享'],
+ ['createPaid123','创建 123 付费分享'],
  ['get','读取原链接'],
  ['password','修改提取码'],
  ['settings','更新分享设置'],
  ['unknown','操作类型未知'],
 ])
-function recordAction(row:ShareRecord){return actionLabels.has(row.action)?row.action:'unknown'}
+function recordAction(row:ShareRecord){
+ if(row.action==='create'&&row.result.kind==='pan123'&&(row.paidPriceFen123??0)>0)return 'createPaid123'
+ return actionLabels.has(row.action)?row.action:'unknown'
+}
 const view=ref(props.reviewTarget?.kind==='share_revoke'?'cloud':'local'),cloudBusy=ref(false)
 const focusReceipt=ref(props.reviewTarget??null)
 const lanzouLocation=ref<LanzouShareLocation|null>(null)
+const previousTarget=ref<ShareRecord|null>(null)
+const previousDialog=ref<HTMLElement|null>(null)
+let previousTrigger:HTMLElement|null=null
 const selectedLanzou=ref<string[]>([])
 const lanzouBatch=ref<{accountId:string;accountName:string;scope:string;editPassword:boolean;targets:{id:string;name:string;canEdit:boolean;canActivate:boolean;canLimitTraffic123:boolean}[]}|null>(null)
 const accountScope=computed(()=>JSON.stringify([props.refreshKey,props.accounts.map(a=>[a.id,a.kind,a.endpoint,a.username])]))
@@ -66,7 +76,7 @@ const availableActions=computed(()=>{
  const present=new Set(records.value.map(recordAction))
  return [...actionLabels].filter(([key])=>present.has(key))
 })
-const canClear=computed(()=>records.value.some(r=>r.result.state==='ready'||r.result.state==='failed'))
+
 const searchLinks=computed(()=>searchShareLinks(query.value))
 const rows=computed(()=>{
  const term=query.value.trim().toLocaleLowerCase()
@@ -79,14 +89,18 @@ const rows=computed(()=>{
    (r.result.name+' '+accountLabel(r)).toLocaleLowerCase().includes(term)
  })
 })
+const clearableRows=computed(()=>rows.value.filter(row=>!row.keepForReplacement&&(row.result.state==='ready'||row.result.state==='failed')))
 const pageCount=computed(()=>Math.max(1,Math.ceil(rows.value.length/pageSize)))
 const visibleRows=computed(()=>rows.value.slice((page.value-1)*pageSize,page.value*pageSize))
 function canCheck(row:ShareRecord){return row.result.canCheck&&row.result.state!=='working'}
+const checkableRows=computed(()=>visibleRows.value.filter(canCheck))
+const pageCheckAccounts=computed(()=>[...new Set(checkableRows.value.map(accountKey))])
 const pageCheckCandidates=computed(()=>{
- const candidates=visibleRows.value.filter(canCheck)
- return new Set(candidates.map(accountKey)).size===1?candidates:[]
+ const key=pageCheckAccounts.value.length===1?pageCheckAccounts.value[0]:checkAccount.value
+ return checkableRows.value.filter(row=>accountKey(row)===key)
 })
-const pageCheckTargets=computed(()=>pageCheckCandidates.value.filter(row=>!checkedOnPage.value.has(row.result.id)).slice(0,20))
+const checkedInAccount=computed(()=>pageCheckCandidates.value.some(row=>checkedReceipts.value.has(row.result.id)))
+const pageCheckTargets=computed(()=>pageCheckCandidates.value.filter(row=>!checkedReceipts.value.has(row.result.id)).slice(0,20))
 function changePage(target:number){
  if(busy.value||props.blocked||lanzouBatch.value)return
  page.value=Math.max(1,Math.min(target,pageCount.value))
@@ -146,28 +160,44 @@ function operationTime(value:unknown){const date=new Date(String(value));return 
 async function read(){
  const scope=accountScope.value
  const next=await api.CloudShares()??[]
- if(scope===accountScope.value)records.value=next
+ if(disposed||scope!==accountScope.value)return
+ records.value=next
+ if(checkedReceipts.value.size){
+  const existing=new Set(next.map(row=>row.result.id))
+  for(const id of checkedReceipts.value)if(!existing.has(id))checkedReceipts.value.delete(id)
+ }
 }
 async function refresh(){if(busy.value||props.blocked)return;busy.value=true;error.value='';try{await read()}catch(e){error.value=String(e)}finally{busy.value=false}}
 async function check(row:ShareRecord){if(busy.value||props.blocked||!row.result.canCheck||row.result.state==='working')return;busy.value=true;error.value='';message.value='';emit('mutation',true);try{await api.CheckCloudShare(row.result.id);await read();message.value='已检查原操作结果，没有重新创建分享'}catch(e){error.value=String(e)}finally{busy.value=false;emit('mutation',false)}}
+function canOpenPaidReview(row:ShareRecord){return recordAction(row)==='createPaid123'&&row.result.state==='unknown'}
+async function openPaidReview(row:ShareRecord){
+ const website=shareWebsite('pan123')
+ if(disposed||busy.value||props.blocked||view.value!=='local'||!rows.value.includes(row)||!canOpenPaidReview(row)||!website)return
+ const scope=accountScope.value
+ error.value=''
+ try{await Browser.OpenURL(website)}
+ catch{if(!disposed&&scope===accountScope.value)error.value='无法打开 123 云盘官网'}
+}
 function stopPageCheck(){if(batchCheck.value)batchCheck.value.stop=true}
 async function checkPage(restart=false){
  if(disposed||busy.value||props.blocked||lanzouBatch.value||focusReceipt.value||view.value!=='local')return
- if(restart)checkedOnPage.value.clear()
+ if(restart)for(const row of pageCheckCandidates.value)checkedReceipts.value.delete(row.result.id)
  const targets=pageCheckTargets.value.map(row=>row.result.id)
  if(!targets.length)return
  const scope=checkPageScope.value
+ const source=accountScope.value
+ const selectedAccount=checkAccount.value
  busy.value=true;error.value='';message.value=''
  batchCheck.value={done:0,total:targets.length,stop:false}
  const run=batchCheck.value
  emit('mutation',true)
  try{
   for(const id of targets){
-   if(disposed||run.stop||props.blocked||scope!==checkPageScope.value)break
+   if(disposed||run.stop||props.blocked||scope!==checkPageScope.value||selectedAccount!==checkAccount.value)break
    const checked=await api.CheckCloudShare(id)
-   if(disposed||scope!==checkPageScope.value)break
+   if(disposed||source!==accountScope.value)break
    if(checked?.id!==id||!['ready','failed','unknown'].includes(checked.state))throw Error('原回执未返回可用结果')
-   checkedOnPage.value.add(id)
+   checkedReceipts.value.add(id)
    run.done++
   }
  }catch(e){
@@ -201,6 +231,56 @@ async function copyFiltered(linkOnly=false){
  }).join(linkOnly?'\n':'\n\n')
  await copyText(text,linkOnly?`已复制 ${selected.length} 条分享链接`:`已复制 ${selected.length} 条完整分享信息`)
 }
+async function preparePreviousRevoke(row:ShareRecord,event?:Event){
+ if(disposed||busy.value||props.blocked||view.value!=='local'||!row.previousShareUrl||!rows.value.includes(row))return
+ previousTrigger=event?.currentTarget as HTMLElement|null
+ previousTarget.value=row
+ await nextTick()
+ previousDialog.value?.focus()
+}
+async function cancelPreviousRevoke(){
+ previousTarget.value=null
+ await nextTick()
+ previousTrigger?.focus()
+}
+async function submitPreviousRevoke(){
+ const row=previousTarget.value
+ if(disposed||busy.value||props.blocked||view.value!=='local'||!row?.previousShareUrl||!rows.value.includes(row))return
+ const scope=accountScope.value
+ previousTarget.value=null;busy.value=true;error.value='';message.value='';emit('mutation',true)
+ try{
+  await api.RevokePreviousCloudShare(row.accountId,row.result.id,row.previousShareUrl)
+  if(disposed||scope!==accountScope.value)return
+  await read()
+ }catch(e){if(!disposed&&scope===accountScope.value)error.value=String(e)}
+ finally{busy.value=false;if(!disposed)emit('mutation',false)}
+}
+async function checkPreviousRevoke(row:ShareRecord){
+ const previous=row.previousRevocation
+ if(disposed||busy.value||props.blocked||view.value!=='local'||!previous?.canCheck||!rows.value.includes(row))return
+ const scope=accountScope.value
+ busy.value=true;error.value='';emit('mutation',true)
+ try{
+  await api.CheckManagedCloudShareRevoke(previous.id)
+  if(disposed||scope!==accountScope.value)return
+  await read()
+ }catch(e){if(!disposed&&scope===accountScope.value)error.value=String(e)}
+ finally{busy.value=false;if(!disposed)emit('mutation',false)}
+}
+async function openSource(row:ShareRecord,recreate=false){
+ if(disposed||busy.value||props.blocked||view.value!=='local'||!row.canOpenSource||recreate&&!row.canRecreate||!rows.value.includes(row))return
+ const scope=accountScope.value
+ const accountId=row.accountId
+ busy.value=true;error.value=''
+ try{
+  const location=await api.LocateCreatedShareSource(accountId,row.result.id)
+  if(disposed||scope!==accountScope.value||props.blocked||!rows.value.includes(row))return
+  if(location?.accountId!==accountId||!location.parentId)throw Error('原目录无法核对')
+  if(recreate&&(!location.recreation||location.recreation.receiptId!==row.result.id))throw Error('原项目标识无法核对，请打开原文件目录')
+  emit('source',location,recreate)
+ }catch(e){if(!disposed&&scope===accountScope.value)error.value=String(e)}
+ finally{busy.value=false}
+}
 async function locateLanzou(row:ShareRecord){
  if(disposed||busy.value||props.blocked||view.value!=='local'||!row.canLocate||!rows.value.includes(row))return
  const scope=accountScope.value
@@ -214,15 +294,27 @@ async function locateLanzou(row:ShareRecord){
  }catch(e){if(!disposed&&scope===accountScope.value)error.value=String(e)}
  finally{busy.value=false;emit('mutation',false)}
 }
-async function clearConfirmed(){if(busy.value||props.blocked)return;busy.value=true;error.value='';message.value='';emit('mutation',true);try{const count=await api.ClearCloudShareHistory();await read();message.value='已清理 '+count+' 条本机已确认记录；云端分享不受影响，未确认记录已保留'}catch(e){error.value=String(e)}finally{busy.value=false;emit('mutation',false)}}
+async function clearConfirmed(){
+ if(disposed||busy.value||props.blocked||focusReceipt.value||view.value!=='local')return
+ const ids=clearableRows.value.map(row=>row.result.id)
+ if(!ids.length||!window.confirm('清理当前筛选命中的 '+ids.length+' 条本机已确认记录？云端分享和待确认记录会保留。'))return
+ busy.value=true;error.value='';message.value='';emit('mutation',true)
+ try{
+  const count=await api.ClearSelectedCloudShareHistory(ids)
+  await read()
+  message.value='已清理 '+count+' 条本机已确认记录'
+ }catch(e){error.value=String(e)}
+ finally{busy.value=false;emit('mutation',false)}
+}
 onMounted(()=>{if(view.value==='local')void refresh()})
 watch(view,()=>{focusReceipt.value=null;records.value=[];if(view.value!=='lanzou')lanzouLocation.value=null;if(view.value==='local')void refresh()})
 watch([query,kind,status,action,accountFilter,view,focusReceipt],()=>{page.value=1;selectedLanzou.value=[]})
 watch(pageCount,count=>{page.value=Math.min(page.value,count)})
-watch(checkPageScope,()=>{checkedOnPage.value.clear();stopPageCheck()})
+watch(checkPageScope,()=>{previousTarget.value=null;checkAccount.value='';stopPageCheck()})
+watch(pageCheckAccounts,accounts=>{if(!accounts.includes(checkAccount.value))checkAccount.value=''})
 watch([availableAccounts,batchCheck],([options,batch])=>{if(!batch&&accountFilter.value&&!options.has(accountFilter.value))accountFilter.value=''})
 watch([availableActions,batchCheck],([options,batch])=>{if(!batch&&action.value&&!options.some(([key])=>key===action.value))action.value=''})
-watch(accountScope,()=>{selectedLanzou.value=[];closeLanzouBatch();if(batchCheck.value){stopPageCheck();records.value=[]}else void refresh()})
+watch(accountScope,()=>{checkedReceipts.value.clear();selectedLanzou.value=[];closeLanzouBatch();if(batchCheck.value){stopPageCheck();records.value=[]}else void refresh()})
 onUnmounted(()=>{disposed=true;closeLanzouBatch()})
 </script>
 <template>
@@ -232,8 +324,8 @@ onUnmounted(()=>{disposed=true;closeLanzouBatch()})
   <CloudShareList v-if="view==='cloud'" :accounts="accounts" :blocked="blocked" :refresh-key="refreshKey" :review-target="focusReceipt" @mutation="cloudMutation"/>
   <LanzouFolderShares v-else-if="view==='lanzou'" :initial-location="lanzouLocation" :accounts="accounts" :blocked="blocked" :refresh-key="refreshKey" @mutation="cloudMutation"/>
   <template v-else>
-  <details class="operation-details"><summary>本机记录与清理</summary><p>本机最多加密保存 1000 条。清理只移除已确认的本机记录，云端分享仍有效。再次创建会生成新分享。</p></details>
-  <div v-if="focusReceipt" class="share-history-actions"><strong>来自待核对中心的分享记录</strong><button class="secondary" :disabled="busy||blocked" @click="focusReceipt=null">显示全部分享记录</button></div>
+  <details class="operation-details"><summary>本机记录与清理</summary><p>本机最多加密保存 1000 条。清理只移除本机已确认记录。重新分享仍在使用的原回执会保留。</p></details>
+  <div v-if="focusReceipt" class="share-history-actions"><strong>原分享回执</strong><button class="secondary" :disabled="busy||blocked" @click="focusReceipt=null">显示全部分享记录</button></div>
   <div v-else class="share-history-filters">
    <input v-model="query" :disabled="!!batchCheck" type="search" placeholder="搜索文件名、网盘、账号或分享链接" aria-label="按名称、网盘、账号或链接搜索分享记录"/>
    <select v-model="kind" :disabled="!!batchCheck" aria-label="按网盘筛选分享记录"><option value="">全部网盘</option><option v-for="item in kinds" :key="item" :value="item">{{cloudName(item)}}</option></select>
@@ -243,13 +335,22 @@ onUnmounted(()=>{disposed=true;closeLanzouBatch()})
   </div>
   <label class="share-switch"><input v-model="autoFill" type="checkbox"/>复制百度、光鸭有提取码的链接时自动填充提取码</label>
   <p v-if="error" class="banner error" role="alert">{{error}}</p><p v-if="message" class="banner notice" role="status">{{message}}</p>
+  <div v-if="previousTarget" class="modal-backdrop" @click.self="cancelPreviousRevoke"><section ref="previousDialog" tabindex="-1" class="operation-dialog" role="alertdialog" aria-modal="true" aria-label="确认撤销旧链接" @keydown.tab="trapDialogFocus" @keydown.esc.prevent="cancelPreviousRevoke">
+   <strong>撤销旧链接</strong><p>{{accountLabel(previousTarget)}}</p>
+   <p>撤销 {{previousTarget.previousShareUrl}}</p><p>保留 {{previousTarget.result.url}}</p><p>撤销后旧链接将失效。</p>
+   <div class="share-history-actions"><button class="secondary" @click="cancelPreviousRevoke">取消</button><button class="primary" :disabled="busy||blocked" @click="submitPreviousRevoke">确认撤销旧链接</button></div>
+  </section></div>
   <div v-if="!focusReceipt" class="share-history-actions">
+   <select v-if="pageCheckAccounts.length>1" v-model="checkAccount" :disabled="busy||blocked" aria-label="选择本页核对账号">
+    <option value="">选择核对账号</option>
+    <option v-for="key in pageCheckAccounts" :key="key" :value="key">{{availableAccounts.get(key)}}</option>
+   </select>
    <button v-if="batchCheck" class="secondary" :disabled="batchCheck.stop" @click="stopPageCheck">{{batchCheck.stop?'正在停止…':'停止后续核对'}}</button>
-   <button v-else-if="pageCheckTargets.length" class="secondary" :disabled="busy||blocked" @click="checkPage()">{{checkedOnPage.size?'继续核对本页':'核对本页原回执'}}（{{pageCheckTargets.length}}）</button>
+   <button v-else-if="pageCheckTargets.length" class="secondary" :disabled="busy||blocked" @click="checkPage()">{{checkedInAccount?'继续核对本页':'核对本页原回执'}}（{{pageCheckTargets.length}}）</button>
    <button v-else-if="pageCheckCandidates.length" class="secondary" :disabled="busy||blocked" @click="checkPage(true)">重新核对本页</button>
    <button v-if="copyableRows.length" class="secondary" :disabled="busy||blocked" @click="copyFiltered()">复制筛选结果（{{copyableRows.length}} 条）</button>
    <button v-if="copyableRows.length" class="secondary" :disabled="busy||blocked" @click="copyFiltered(true)">仅复制筛选链接</button>
-   <button class="secondary" :disabled="busy||blocked||!canClear" @click="clearConfirmed">清理已确认记录</button>
+   <button class="secondary" :disabled="busy||blocked||!clearableRows.length" @click="clearConfirmed">清理筛选记录…</button>
   </div>
   <p class="muted">匹配 {{rows.length}} / {{records.length}} 条。已取得表示上次读取结果；链接可能过期或被官网修改，可先检查原结果。</p>
   <p v-if="batchCheck" role="status">正在核对原回执 · {{batchCheck.done}} / {{batchCheck.total}}</p>
@@ -273,8 +374,10 @@ onUnmounted(()=>{disposed=true;closeLanzouBatch()})
      :disabled="busy||blocked||!canSelectLanzou(row)" :aria-label="'选择蓝奏分享 '+row.result.name"/> <strong>{{row.result.name}}</strong></label>
     <strong v-else>{{row.result.name}}</strong><small>{{accountLabel(row)}} · {{actionLabels.get(recordAction(row))}} {{operationTime(row.created)}}</small></div><span class="share-history-state" :class="row.result.state">{{stateLabel(row.result.state)}}</span></div>
    <p>{{row.result.message}}</p>
+   <p v-if="row.previousRevocation">旧链接撤销 · {{row.previousRevocation.message}}</p>
+   <p v-if="recordAction(row)==='createPaid123'">申请金额 {{((row.paidPriceFen123??0)/100).toFixed(2)}} 元</p>
    <template v-if="row.result.state==='ready'"><label>分享链接<input :value="shareLink(row.result,autoFill)" readonly :aria-label="row.result.name+'的分享链接'"/></label><p>{{row.result.kind==='lanzou'?'回执提取码':'提取码'}}：{{row.result.password||'无'}} · {{row.result.expiry?'当前有效期 · '+row.result.expiry:row.result.kind==='lanzou'?'沿用网盘原设置':'申请有效期：'+(row.result.days===0?(row.result.kind==='pan123'?'永久（至2099年）':'永久'):row.result.days+'天')}}</p></template>
-   <div class="share-history-actions"><template v-if="row.result.state==='ready'"><button class="secondary" :disabled="busy||blocked" @click="copy(row)">复制完整信息</button><button class="secondary" :disabled="busy||blocked" @click="copy(row,true)">只复制链接</button></template><button v-if="row.result.canCheck" class="secondary" :disabled="busy||blocked||row.result.state==='working'" @click="check(row)">检查原结果</button><button v-if="row.canLocate" class="secondary" :disabled="busy||blocked" @click="locateLanzou(row)">定位原目录</button></div>
+   <div class="share-history-actions"><template v-if="row.result.state==='ready'"><button class="secondary" :disabled="busy||blocked" @click="copy(row)">复制完整信息</button><button class="secondary" :disabled="busy||blocked" @click="copy(row,true)">只复制链接</button></template><button v-if="row.result.canCheck" class="secondary" :disabled="busy||blocked||row.result.state==='working'" @click="check(row)">检查原结果</button><button v-if="canOpenPaidReview(row)" class="secondary" :disabled="busy||blocked" @click="openPaidReview(row)">到官网查看审核</button><button v-if="row.previousRevocation?.canCheck" class="secondary" :disabled="busy||blocked" @click="checkPreviousRevoke(row)">检查旧链接撤销结果</button><button v-if="row.previousShareUrl" class="secondary" :disabled="busy||blocked" @click="preparePreviousRevoke(row,$event)">撤销旧链接…</button><button v-if="row.canRecreate" class="secondary" :disabled="busy||blocked" @click="openSource(row,true)">重新分享…</button><button v-if="row.canOpenSource" class="secondary" :disabled="busy||blocked" @click="openSource(row)">打开原文件目录</button><button v-if="row.canLocate" class="secondary" :disabled="busy||blocked" @click="locateLanzou(row)">定位原目录</button></div>
   </article>
   </template>
   <BatchShareExpiryDialog v-if="lanzouBatch?.editPassword" kind="lanzou" :account-name="lanzouBatch.accountName"

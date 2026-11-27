@@ -56,8 +56,6 @@ node ./tools/check-batch-share-revoke.mjs
 if ($LASTEXITCODE -ne 0) { throw 'Batch share revocation checks failed' }
 node ./tools/check-pending-review.mjs
 if ($LASTEXITCODE -ne 0) { throw 'Pending review checks failed' }
-node ./tools/check-session-renewal.mjs
-if ($LASTEXITCODE -ne 0) { throw 'Session renewal checks failed' }
 # Exercise the actual GUI executable and hidden-console helper launch flags.
 # The login window appears briefly; this does not enter credentials or upload files.
 if ($SkipDesktopSmoke) {

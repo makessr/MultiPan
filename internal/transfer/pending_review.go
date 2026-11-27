@@ -39,16 +39,6 @@ func (m *Manager) PendingReview() PendingReviewSnapshot {
 	m.mu.Lock()
 	wanted := map[string]pendingReviewSource{}
 	moveTimes := map[string]time.Time{}
-	renewals := []PendingReviewRow{}
-	for _, a := range m.accounts {
-		if a.renewal.Pending {
-			state := "unknown"
-			if m.renewingID == a.ID {
-				state = "working"
-			}
-			renewals = append(renewals, PendingReviewRow{Key: "session_renewal:" + a.ID, Kind: "session_renewal", ID: a.ID, AccountID: a.ID, Name: "123登录令牌更新", State: state, Created: a.renewal.Last})
-		}
-	}
 	groups := map[string]map[string]bool{}
 	closing := m.closing
 	add := func(kind, id, account, state string, busy bool) {
@@ -96,7 +86,7 @@ func (m *Manager) PendingReview() PendingReviewSnapshot {
 		add("relay", d.Job.ID, d.Input.SourceAccountID, state, m.relayActive == d.Job.ID)
 	}
 	m.mu.Unlock()
-	rows := append([]PendingReviewRow{}, renewals...)
+	rows := []PendingReviewRow{}
 	appendRow := func(kind, id, name, state string, created time.Time, canCheck bool) {
 		key := kind + ":" + id
 		s, ok := wanted[key]

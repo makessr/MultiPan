@@ -13,7 +13,6 @@ import GlobalSearch from './GlobalSearch.vue'
 import RelayPanel from './RelayPanel.vue'
 import AccountHealth from './AccountHealth.vue'
 import PendingReview from './PendingReview.vue'
-import SessionRenewal from './SessionRenewal.vue'
 import UploadReview from './UploadReview.vue'
 import {useUploadReview} from './useUploadReview'
 import {matchUploadFolder,type UploadFolderMatch} from './uploadFolderMatch'
@@ -21,7 +20,7 @@ import FolderPicker from './FolderPicker.vue'
 import CloudFiles from './CloudFiles.vue'
 import AppIcon from './AppIcon.vue'
 import * as api from '../bindings/multipan/internal/desktop/desktopservice'
-import type {Account,AccountInput,File as SourceFile,Task,DownloadJob,TransferSettings,CloudSearchResult,CloudFolder,RelayInput} from '../bindings/multipan/internal/transfer/models'
+import type {Account,AccountInput,File as SourceFile,Task,DownloadJob,TransferSettings,CloudSearchResult,CloudFolder,RelayInput,ShareSourceLocation} from '../bindings/multipan/internal/transfer/models'
 const durableDownloads=ref<DownloadJob[]>([]),settings=ref<TransferSettings>({uploadConcurrency:3,downloadConcurrency:1,uploadKiB:0,downloadKiB:0,closeToTray:false})
 const accounts=ref<Account[]>([]),tasks=ref<Task[]>([]),files=ref<SourceFile[]>([]),selected=ref<string[]>([])
 const folders=ref<Record<string,string>>({}),error=ref(''),notice=ref(''),storageError=ref(''),tab=ref('files'),filter=ref<UploadFilter>('all'),busy=ref(false),modal=ref(false),saving=ref(false)
@@ -36,14 +35,15 @@ function openRelayFileCopy(inputs:RelayInput[],directory:boolean){
 }
 function downloadStatus(active:boolean,count:number){downloadActive.value=active;downloadItems.value=count}
 function accountLabel(a:Account){const same=accounts.value.filter(other=>other.kind===a.kind);return cloudName(a.kind)+(same.length>1?' '+(same.findIndex(other=>other.id===a.id)+1):'')}
-const fileLocation=ref<{accountId:string;id:string;breadcrumbs?:CloudFolder[];nonce:number}|null>(null)
+const fileLocation=ref<{accountId:string;id:string;breadcrumbs?:CloudFolder[];nonce:number;shareSource?:ShareSourceLocation;recreateShare?:boolean}|null>(null)
 let locationNonce=0
-function openFileLocation(accountId:string,parentId:string,breadcrumbs?:CloudFolder[]){
+function openFileLocation(accountId:string,parentId:string,breadcrumbs?:CloudFolder[],shareSource?:ShareSourceLocation,recreateShare=false){
  if(cloudMoving.value||!parentId||!accounts.value.some(a=>a.id===accountId))return
  browserAccountId.value=accountId
- fileLocation.value={accountId,id:parentId,breadcrumbs,nonce:++locationNonce}
+ fileLocation.value={accountId,id:parentId,breadcrumbs,shareSource,recreateShare,nonce:++locationNonce}
  tab.value='files'
 }
+function openShareSource(location:ShareSourceLocation,recreate:boolean){openFileLocation(location.accountId,location.parentId,undefined,location,recreate)}
 function openSearchLocation(row:CloudSearchResult){openFileLocation(row.accountId,row.parentId,row.trail??[])}
 function openFiles(a?:Account){if(cloudMoving.value)return;if(a)browserAccountId.value=a.id;tab.value='files'}
 async function browserRenamed(_id:string){await refresh()}
@@ -229,7 +229,7 @@ function recoverAccount(id:string){editAccount(id,true)}
 const pendingReceipt=ref<{tab:string;kind:string;accountId:string;receiptId:string}|null>(null)
 function openPendingModule(kind:string,accountId:string,receiptId:string){
  if(cloudMoving.value)return
- const target=({session_renewal:'renewal',share:'shares',share_settings:'shares',share_revoke:'shares',copy:'files',trash:'files',relay:'relay'} as Record<string,string>)[kind]
+ const target=({share:'shares',share_settings:'shares',share_revoke:'shares',copy:'files',trash:'files',relay:'relay'} as Record<string,string>)[kind]
  if(!target)return
  pendingReceipt.value=target==='shares'?{tab:target,kind,accountId,receiptId}:null
  if(accounts.value.some(a=>a.id===accountId))browserAccountId.value=accountId
@@ -246,7 +246,7 @@ const primaryNavigation = [
 ] as const
 const navigationGroups = [
  {id:'transfers',label:'传输',items:[{id:'tasks',label:'上传任务'},{id:'downloads',label:'下载结果'},{id:'queue',label:'下载队列与历史'},{id:'relay',label:'网盘中转'}]},
- {id:'maintenance',label:'设置与维护',items:[{id:'settings',label:'传输设置'},{id:'review',label:'待核对中心'},{id:'health',label:'账号连接检查'},{id:'renewal',label:'123 登录维护'}]},
+ {id:'maintenance',label:'设置与维护',items:[{id:'settings',label:'传输设置'},{id:'review',label:'待核对中心'},{id:'health',label:'账号连接检查'}]},
 ] as const
 type NavigationGroup = typeof navigationGroups[number]['id']
 const currentGroup = computed(() => navigationGroups.find(group => group.items.some(item => item.id === tab.value))?.id)
@@ -293,7 +293,7 @@ function navigationDisabled(page:string){
  <main id="main-content" class="desktop-main"><div class="page">
  <div v-if="error||storageError" class="banner error" role="alert"><span>{{error||storageError}}</span><button v-if="error" aria-label="关闭错误提示" @click="error=''">×</button></div>
  <div v-if="notice" class="banner notice" role="status"><span>{{notice}}</span><button aria-label="关闭提示" @click="notice=''">×</button></div>
- <div v-show="tab==='files'||tab==='downloads'" class="files-surface"><CloudFiles :location-request="fileLocation" :accounts="accounts" :account-id="browserAccountId" :view="tab==='downloads'?'downloads':'files'" :refresh-key="accountRefresh[browserAccountId||accounts[0]?.id||'']??0" @edit="editAccount" :blocked="modal||!!folderAccount||busy||!['files','downloads'].includes(tab)" @queued="refresh" @relay-copy="openRelayFileCopy" @mutation="cloudMoving=$event" @download-status="downloadStatus" @downloads="tab='downloads'" @uploads="tab='tasks'" @view-files="tab='files'" @account="browserAccountId=$event" @saved="browserSaved" @renamed="browserRenamed" @add="openAccount()"/></div><SessionRenewal v-if="tab==='renewal'" :accounts="accounts" :refresh-key="JSON.stringify(accountRefresh)" :blocked="modal||!!folderAccount||busy" @mutation="cloudMoving=$event" @account="editAccount($event,true)"/><PendingReview v-if="tab==='review'" :accounts="accounts" :refresh-key="JSON.stringify(accountRefresh)" :blocked="modal||!!folderAccount||busy" @mutation="cloudMoving=$event" @open="openPendingModule"/><AccountHealth v-if="tab==='health'" :accounts="accounts" :refresh-key="JSON.stringify(accountRefresh)" :blocked="cloudMoving||modal||!!folderAccount||busy" @account="editAccount($event,true)"/><RelayPanel v-if="tab==='relay'" :accounts="accounts" :file-copy="relayFileCopy" @copy-consumed="relayFileCopy=null" :blocked="modal||!!folderAccount||busy"/><GlobalSearch v-if="tab==='search'" :accounts="accounts" :initial-account-id="browserAccountId" :refresh-key="JSON.stringify(accountRefresh)" :blocked="cloudMoving||modal||!!folderAccount||busy" @open="openSearchLocation"/><ShareHistory :review-target="pendingReceipt" v-if="tab==='shares'" :accounts="accounts" :refresh-key="JSON.stringify(accountRefresh)" :blocked="modal||!!folderAccount||busy" @mutation="cloudMoving=$event" @files="tab='files'"/><TransfersPanel v-if="tab==='queue'||tab==='settings'" :view="tab" :jobs="durableDownloads" :settings="settings" @refresh="refresh" @account="recoverAccount"/><ApplicationUpdates v-if="supportsBrowserLogin" v-show="tab==='settings'" :blocked="cloudMoving||modal||!!folderAccount||busy"/><p v-if="tab==='settings'" class="app-version">MultiPan {{APP_VERSION}}</p><template v-if="tab==='upload'">
+ <div v-show="tab==='files'||tab==='downloads'" class="files-surface"><CloudFiles :location-request="fileLocation" :accounts="accounts" :account-id="browserAccountId" :view="tab==='downloads'?'downloads':'files'" :refresh-key="accountRefresh[browserAccountId||accounts[0]?.id||'']??0" @edit="editAccount" :blocked="modal||!!folderAccount||busy||!['files','downloads'].includes(tab)" @queued="refresh" @relay-copy="openRelayFileCopy" @mutation="cloudMoving=$event" @share-receipt="openPendingModule" @download-status="downloadStatus" @downloads="tab='downloads'" @uploads="tab='tasks'" @view-files="tab='files'" @account="browserAccountId=$event" @saved="browserSaved" @renamed="browserRenamed" @add="openAccount()"/></div><PendingReview v-if="tab==='review'" :accounts="accounts" :refresh-key="JSON.stringify(accountRefresh)" :blocked="modal||!!folderAccount||busy" @mutation="cloudMoving=$event" @open="openPendingModule"/><AccountHealth v-if="tab==='health'" :accounts="accounts" :refresh-key="JSON.stringify(accountRefresh)" :blocked="cloudMoving||modal||!!folderAccount||busy" @account="editAccount($event,true)"/><RelayPanel v-if="tab==='relay'" :accounts="accounts" :file-copy="relayFileCopy" @copy-consumed="relayFileCopy=null" :blocked="modal||!!folderAccount||busy"/><GlobalSearch v-if="tab==='search'" :accounts="accounts" :initial-account-id="browserAccountId" :refresh-key="JSON.stringify(accountRefresh)" :blocked="cloudMoving||modal||!!folderAccount||busy" @open="openSearchLocation"/><ShareHistory :review-target="pendingReceipt" v-if="tab==='shares'" :accounts="accounts" :refresh-key="JSON.stringify(accountRefresh)" :blocked="modal||!!folderAccount||busy" @mutation="cloudMoving=$event" @source="openShareSource" @files="tab='files'"/><TransfersPanel v-if="tab==='queue'||tab==='settings'" :view="tab" :jobs="durableDownloads" :settings="settings" @refresh="refresh" @account="recoverAccount"/><ApplicationUpdates v-if="supportsBrowserLogin" v-show="tab==='settings'" :blocked="cloudMoving||modal||!!folderAccount||busy"/><p v-if="tab==='settings'" class="app-version">MultiPan {{APP_VERSION}}</p><template v-if="tab==='upload'">
  <div class="heading"><h1>多网盘上传</h1></div>
  <div class="upload-layout"><section id="upload-dropzone" class="source-panel" :data-file-drop-target="!modal&&!folderAccount&&!busy?'':undefined"><div class="section-title"><h2>本地项目 <em v-if="files.length">{{files.length}}</em></h2><div><button v-if="files.length" class="text-button" @click="files=[]">清空</button><button class="secondary" @click="pick">选择文件</button><button class="secondary" :disabled="busy" @click="pickFolder">选择文件夹</button></div></div>
  <button v-if="!files.length" class="file-picker" @click="pick"><AppIcon name="upload"/><strong>拖入文件或文件夹</strong></button>

@@ -17,20 +17,21 @@ import (
 
 // ManagedShare contains a protected local handle, never a raw provider ID.
 type ManagedShare struct {
-	PriceFen           *int64 `json:"priceFen,omitempty"`
-	EarningsFen        *int64 `json:"earningsFen,omitempty"`
-	CanLimitTraffic123 bool   `json:"canLimitTraffic123,omitempty"`
-	QuarkAccess        string `json:"quarkAccess,omitempty"`
-	QuarkRestricted    int64  `json:"quarkRestricted,omitempty"`
-	CanActivate        bool   `json:"canActivate,omitempty"`
-	CanEdit            bool   `json:"canEdit"`
-	ID                 string `json:"id"`
-	Name               string `json:"name"`
-	Status             string `json:"status"`
-	Created            string `json:"created"`
-	Expiry             string `json:"expiry"`
-	CanRevoke          bool   `json:"canRevoke"`
-	SelectionKey       string `json:"selectionKey"`
+	replacementAvailable bool
+	PriceFen             *int64 `json:"priceFen,omitempty"`
+	EarningsFen          *int64 `json:"earningsFen,omitempty"`
+	CanLimitTraffic123   bool   `json:"canLimitTraffic123,omitempty"`
+	QuarkAccess          string `json:"quarkAccess,omitempty"`
+	QuarkRestricted      int64  `json:"quarkRestricted,omitempty"`
+	CanActivate          bool   `json:"canActivate,omitempty"`
+	CanEdit              bool   `json:"canEdit"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Status               string `json:"status"`
+	Created              string `json:"created"`
+	Expiry               string `json:"expiry"`
+	CanRevoke            bool   `json:"canRevoke"`
+	SelectionKey         string `json:"selectionKey"`
 }
 type ManagedSharePage struct {
 	Items   []ManagedShare `json:"items"`
@@ -312,7 +313,7 @@ func quarkManagedSharesFromClient(ctx context.Context, c *quarkClient, page int,
 		result.Items = append(result.Items, ManagedShare{
 			ID: base64.RawURLEncoding.EncodeToString(sealed), Name: name, Status: status,
 			Created: managedShareTime(row.Created), Expiry: expiry, CanRevoke: true, SelectionKey: managedShareSelectionKey(handle),
-			QuarkRestricted: restricted, QuarkAccess: row.accessMode(),
+			QuarkRestricted: restricted, QuarkAccess: row.accessMode(), replacementAvailable: status == "有效性待核对",
 		})
 	}
 	return result, nil

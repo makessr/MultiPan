@@ -44,3 +44,7 @@ func (s *DesktopService) MoveCloudRelay(id, confirmation string) error {
 	return s.manager.StartRelayMove(id, confirmation)
 }
 func (s *DesktopService) CheckCloudRelayMove(id string) error { return s.manager.CheckRelayMove(id) }
+
+func (s *DesktopService) MoveCloudRelays(ids []string, folderID, confirmation string) error {
+	return s.manager.StartRelayMoves(ids, folderID, confirmation)
+}

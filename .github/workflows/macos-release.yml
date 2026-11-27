@@ -1,0 +1,132 @@
+name: macOS 正式签名与公证
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: main 上成功的「Linux 与 macOS 构建」运行 ID
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  source:
+    name: 核对构建来源
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+      run-id: ${{ steps.verify.outputs.run-id }}
+    steps:
+      - name: 核对成功的 main 构建与版本
+        id: verify
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          set -u
+          [[ "$BUILD_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" |
+            jq -er --arg repo "$GITHUB_REPOSITORY" '
+              select(.path == ".github/workflows/desktop-unix.yml" and .event == "push" and
+                .head_branch == "main" and .conclusion == "success" and
+                .head_repository.full_name == $repo) | .head_sha')
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/compare/$sha...main" |
+            jq -e --arg sha "$sha" '.merge_base_commit.sha == $sha and (.status == "identical" or .status == "ahead")' >/dev/null
+          version=$(gh api "repos/$GITHUB_REPOSITORY/contents/frontend/src/version.ts?ref=$sha" --jq .content |
+            base64 --decode |
+            sed -n "s/^export const APP_VERSION='\([0-9.]*\)'$/\1/p")
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf 'version=%s\nrun-id=%s\n' "$version" "$BUILD_RUN_ID" >> "$GITHUB_OUTPUT"
+          printf '构建源码 %s，版本 %s\n' "$sha" "$version"
+
+  notarize:
+    name: 公证 macOS ${{ matrix.arch }}
+    needs: source
+    environment: macos-release
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: MultiPan-macOS-${{ matrix.arch }}
+          path: ${{ runner.temp }}/multipan-preview
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.source.outputs.run-id }}
+      - name: 核对并解包已构建的应用
+        shell: bash
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -u
+          cd "$RUNNER_TEMP/multipan-preview"
+          zip="MultiPan-$VERSION-$ARCH-macOS.zip"
+          read -r expected filename extra < "$zip.sha256"
+          [[ "$expected" =~ ^[0-9a-f]{64}$ && "$filename" == "$zip" && -z "$extra" ]]
+          read -r actual _ < <(shasum -a 256 "$zip")
+          [[ "$actual" == "$expected" ]]
+          mkdir "$RUNNER_TEMP/multipan-app"
+          ditto -x -k "$zip" "$RUNNER_TEMP/multipan-app"
+      - name: 导入临时凭据并公证
+        shell: bash
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          CERT_P12: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          CERT_FINGERPRINT: ${{ vars.MACOS_CERT_FINGERPRINT }}
+        run: |
+          set -u
+          [[ -n "$CERT_P12" && -n "$CERT_PASSWORD" && -n "$NOTARY_KEY" &&
+            -n "$NOTARY_KEY_ID" && -n "$NOTARY_ISSUER" && "$CERT_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]]
+          umask 077
+          scratch=$(mktemp -d "$RUNNER_TEMP/multipan-sign.XXXXXXXX")
+          keychain="$scratch/multipan.keychain-db"
+          cleanup() {
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            rm -rf -- "$scratch"
+          }
+          trap cleanup EXIT
+          password=$(openssl rand -hex 24)
+          printf '::add-mask::%s\n' "$password"
+          printf '%s' "$CERT_P12" | base64 -D > "$scratch/signing.p12"
+          printf '%s' "$NOTARY_KEY" | base64 -D > "$scratch/AuthKey.p8"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security import "$scratch/signing.p12" -k "$keychain" -f pkcs12 -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          xcrun notarytool store-credentials multipan-release --keychain "$keychain" \
+            --key "$scratch/AuthKey.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
+          rm -- "$scratch/signing.p12" "$scratch/AuthKey.p8"
+          unset CERT_P12 CERT_PASSWORD NOTARY_KEY NOTARY_KEY_ID NOTARY_ISSUER password
+          MULTIPAN_NOTARY_KEYCHAIN="$keychain" bash scripts/prepare-macos-release.sh \
+            "$RUNNER_TEMP/multipan-app/multipan.app" "$VERSION" "$ARCH" "$CERT_FINGERPRINT" \
+            multipan-release "$RUNNER_TEMP/multipan-release"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: MultiPan-macOS-${{ matrix.arch }}-notarized
+          if-no-files-found: error
+          path: ${{ runner.temp }}/multipan-release/

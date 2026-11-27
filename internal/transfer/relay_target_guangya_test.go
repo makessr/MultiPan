@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -88,9 +91,114 @@ func TestRelayGuangyaChildResolvesAcknowledgedParent(t *testing.T) {
 	}
 }
 
+func TestRelayGuangyaQueueSameAccountCopy(t *testing.T) {
+	const source, target, sourceID, copyID, content = "source-dir", "target-dir", "original-file", "copied-file", "original bytes"
+	var writes atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if r.Method == http.MethodPost && json.NewDecoder(r.Body).Decode(&payload) != nil {
+			t.Error("invalid request payload")
+			http.Error(w, "invalid", http.StatusBadRequest)
+			return
+		}
+		switch r.URL.Path {
+		case "/userres/v1/file/get_file_list":
+			parent := payload["parentId"]
+			rows := []map[string]any{}
+			if parent == source || parent == target && writes.Load() > 0 {
+				id := sourceID
+				if parent == target {
+					id = copyID
+				}
+				rows = append(rows, map[string]any{"fileId": id, "parentId": parent, "fileName": "item.txt", "fileSize": len(content), "resType": 1})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"list": rows, "total": len(rows)}})
+		case "/userres/v1/get_res_download_url":
+			fmt.Fprint(w, `{"code":0,"data":{"signedURL":"https://download.guangyapan.com/content"}}`)
+		case "/content":
+			fmt.Fprint(w, content)
+		case "/userres/v2/get_res_center_token":
+			if payload["parentId"] != target || payload["name"] != "item.txt" {
+				t.Error("copy used the wrong target", payload)
+			}
+			writes.Add(1)
+			fmt.Fprint(w, `{"code":156,"data":{"taskId":"upload-task"}}`)
+		case "/userres/v1/file/get_info_by_task_id":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"fileId": copyID}})
+		default:
+			t.Error("unexpected same-account copy request", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	original := http.DefaultTransport
+	transport := server.Client().Transport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.TLSClientConfig.ServerName = "127.0.0.1"
+	dialer := net.Dialer{}
+	transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, "tcp", server.Listener.Addr().String())
+	}
+	http.DefaultTransport = transport
+	defer func() { http.DefaultTransport = original; transport.CloseIdleConnections() }()
+
+	m, err := NewManager(filepath.Join(t.TempDir(), "state.enc"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	a := Account{ID: "guangya", Kind: "guangya", Endpoint: GuangyaAPI, Secret: "fixture"}
+	m.accounts = []Account{a}
+	in := RelayInput{SourceAccountID: a.ID, TargetAccountID: a.ID, ParentID: source, EntryID: sourceID,
+		DestinationID: target, Name: "item.txt", Size: int64(len(content))}
+	ctx := context.Background()
+	sameFolder := in
+	sameFolder.DestinationID = source
+	if n, err := m.QueueRelaySnapshots(ctx, []RelayInput{sameFolder}); err == nil || n != 0 {
+		t.Fatal("accepted the source directory as a target", n, err)
+	}
+	if n, err := m.QueueRelaySnapshots(ctx, []RelayInput{in}); err != nil || n != 1 {
+		t.Fatal("same-account copy did not queue", n, err)
+	}
+	jobs := awaitRelay(t, m)
+	if len(jobs) != 1 || jobs[0].State != "verified" || jobs[0].CanMove || writes.Load() != 1 {
+		t.Fatal("same-account copy did not verify or exposed a move", jobs, writes.Load())
+	}
+	if n, err := m.QueueRelaySnapshots(ctx, []RelayInput{in}); err == nil || n != 0 || writes.Load() != 1 {
+		t.Fatal("existing target was not rejected before uploading", n, err, writes.Load())
+	}
+}
+
+func TestRelayGuangyaSameAccountFileReceipt(t *testing.T) {
+	const account, source, target, file = "guangya-account", "source-folder", "target-folder", "source-file"
+	d := diskRelay{
+		Input:      RelayInput{SourceAccountID: account, TargetAccountID: account, ParentID: source, DestinationID: target, EntryID: file},
+		SourceKind: "guangya", TargetKind: "guangya", SourceScope: "scope", TargetScope: "scope",
+	}
+	if !validRelayAccounts(d) || relayMoveEligible(d) {
+		t.Fatal("same-account standalone copy must retain its source")
+	}
+	for _, change := range []func(*diskRelay){
+		func(row *diskRelay) { row.Input.DestinationID = source },
+		func(row *diskRelay) { row.Input.DestinationID = file },
+		func(row *diskRelay) { row.TargetFileID = file },
+		func(row *diskRelay) { row.TargetScope = "different" },
+		func(row *diskRelay) { row.TargetKind = "quark" },
+		func(row *diskRelay) { row.Folder = true },
+		func(row *diskRelay) { row.ParentJobID = "tree-job" },
+	} {
+		changed := d
+		change(&changed)
+		if validRelayAccounts(changed) {
+			t.Fatal("unsafe same-account copy record was accepted", changed.Input)
+		}
+	}
+}
+
 func TestRelayGuangyaStandaloneReceipts(t *testing.T) {
 	const content = "standalone relay"
-	for _, mode := range []string{"success", "same-name", "old-id"} {
+	for _, mode := range []string{"success", "same-name", "old-id", "source-id"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
 			m, err := NewManager(filepath.Join(t.TempDir(), "state.enc"), nil)
@@ -100,7 +208,7 @@ func TestRelayGuangyaStandaloneReceipts(t *testing.T) {
 			a := Account{ID: "target", Kind: "guangya", Endpoint: GuangyaAPI}
 			m.accounts = []Account{a}
 			d := diskRelay{TargetKind: a.Kind, TargetScope: downloadScope(a), Submitted: true,
-				Input: RelayInput{DestinationID: guangyaRoot, Name: "item.txt", Size: int64(len(content))},
+				Input: RelayInput{SourceAccountID: a.ID, TargetAccountID: a.ID, EntryID: "source-id", DestinationID: guangyaRoot, Name: "item.txt", Size: int64(len(content))},
 				Job:   RelayJob{ID: "fixture-relay", SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(content)))},
 			}
 			m.relays = []diskRelay{d}
@@ -121,6 +229,8 @@ func TestRelayGuangyaStandaloneReceipts(t *testing.T) {
 						id := "uploaded-id"
 						if mode == "old-id" {
 							id = "existing-id"
+						} else if mode == "source-id" {
+							id = "source-id"
 						}
 						return quarkResponse(fmt.Sprintf(`{"code":0,"data":{"list":[{"fileId":%q,"parentId":"","fileName":"item.txt","fileSize":%d,"resType":1}],"total":1}}`, id, len(content)), nil), nil
 					}
@@ -140,6 +250,8 @@ func TestRelayGuangyaStandaloneReceipts(t *testing.T) {
 					id := "uploaded-id"
 					if mode == "old-id" {
 						id = "existing-id"
+					} else if mode == "source-id" {
+						id = "source-id"
 					}
 					return quarkResponse(fmt.Sprintf(`{"code":0,"data":{"fileId":%q}}`, id), nil), nil
 				case "/userres/v1/get_res_download_url":

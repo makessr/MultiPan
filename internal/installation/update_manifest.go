@@ -35,8 +35,9 @@ type updateManifest struct {
 
 // VerifiedUpdate describes a release authenticated by the publisher key.
 type VerifiedUpdate struct {
-	manifest updateManifest
-	origin   *url.URL
+	manifest    updateManifest
+	origin      *url.URL
+	githubRoute string
 }
 
 var ErrSameUpdateVersion = errors.New("更新清单版本与当前版本一致")
@@ -44,9 +45,45 @@ var ErrSameUpdateVersion = errors.New("更新清单版本与当前版本一致")
 func (u VerifiedUpdate) Version() string   { return u.manifest.Version }
 func (u VerifiedUpdate) AssetName() string { return u.manifest.Asset }
 
-func VerifyUpdateManifest(metadata, detachedSignature io.Reader, trustedPublisher ed25519.PublicKey, installedVersion string, now time.Time) (VerifiedUpdate, error) {
-	if len(trustedPublisher) != ed25519.PublicKeySize || !validVersion(installedVersion) || now.IsZero() {
-		return VerifiedUpdate{}, errors.New("更新核对需要可信发布公钥、当前版本和有效时间")
+func VerifyUpdateManifest(metadata, detachedSignature io.Reader, trustedPublisher ed25519.PublicKey, installedVersion, arch string, now time.Time) (VerifiedUpdate, error) {
+	if !validVersion(installedVersion) {
+		return VerifiedUpdate{}, errors.New("更新核对需要有效的当前版本")
+	}
+	release, err := verifyReleaseManifest(metadata, detachedSignature, trustedPublisher, arch, now)
+	if err != nil {
+		return VerifiedUpdate{}, err
+	}
+	if release.Version() == installedVersion {
+		return VerifiedUpdate{}, ErrSameUpdateVersion
+	}
+	if !older(installedVersion, release.Version()) {
+		return VerifiedUpdate{}, errors.New("更新清单版本低于当前版本")
+	}
+	return release, nil
+}
+
+// VerifyFirstInstallManifest binds the signed release to a selected version
+// without assuming an installation already exists.
+func VerifyFirstInstallManifest(metadata, detachedSignature io.Reader, trustedPublisher ed25519.PublicKey, releaseVersion, arch string, now time.Time) (VerifiedUpdate, error) {
+	if !validVersion(releaseVersion) {
+		return VerifiedUpdate{}, errors.New("首次安装核对需要有效的发行版本")
+	}
+	release, err := verifyReleaseManifest(metadata, detachedSignature, trustedPublisher, arch, now)
+	if err != nil {
+		return VerifiedUpdate{}, err
+	}
+	if release.Version() != releaseVersion {
+		return VerifiedUpdate{}, errors.New("首次安装清单版本与指定发行版本不一致")
+	}
+	return release, nil
+}
+
+func verifyReleaseManifest(metadata, detachedSignature io.Reader, trustedPublisher ed25519.PublicKey, arch string, now time.Time) (VerifiedUpdate, error) {
+	if !SupportedUpdateArchitecture(arch) {
+		return VerifiedUpdate{}, errors.New("当前架构尚不支持 Windows 更新")
+	}
+	if len(trustedPublisher) != ed25519.PublicKeySize || now.IsZero() {
+		return VerifiedUpdate{}, errors.New("发行核对需要可信发布公钥和有效时间")
 	}
 	raw, err := io.ReadAll(io.LimitReader(metadata, maxUpdateManifest+1))
 	if err != nil || len(raw) > maxUpdateManifest {
@@ -61,29 +98,41 @@ func VerifyUpdateManifest(metadata, detachedSignature io.Reader, trustedPublishe
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&m) != nil || decoder.Decode(new(any)) != io.EOF ||
-		m.Format != 1 || m.Platform != "windows-x64" || !validVersion(m.Version) {
+		m.Format != 1 || m.Platform != InstallerPlatform(arch) || !validVersion(m.Version) {
 		return VerifiedUpdate{}, errors.New("更新清单格式、平台或版本无效")
 	}
 	if m.Published.IsZero() || m.Published.After(now) || !m.Expires.After(now) || m.Expires.Sub(m.Published) > maxUpdateValidity {
 		return VerifiedUpdate{}, errors.New("更新清单已过期或发布时间无效")
 	}
-	expectedName := updateInstallerName(m.Version)
+	expectedName := updateInstallerName(m.Version, arch)
 	sum, err := hex.DecodeString(m.SHA256)
 	if m.Asset != expectedName || m.Size <= 0 || m.Size > maxUpdateInstaller ||
 		err != nil || len(sum) != sha256.Size || m.SHA256 != strings.ToLower(m.SHA256) {
 		return VerifiedUpdate{}, errors.New("更新安装包的名称、大小或摘要无效")
 	}
-	if m.Version == installedVersion {
-		return VerifiedUpdate{}, ErrSameUpdateVersion
-	}
-	if !older(installedVersion, m.Version) {
-		return VerifiedUpdate{}, errors.New("更新清单版本低于当前版本")
-	}
 	return VerifiedUpdate{manifest: m}, nil
 }
 
-func updateInstallerName(version string) string {
-	return "MultiPan-" + version + "-windows-x64-setup.exe"
+func SupportedUpdateArchitecture(arch string) bool { return arch == "amd64" || arch == "arm64" }
+
+// UpdateAssetNames keeps the legacy x64 asset names and gives ARM64 its own pair.
+func UpdateAssetNames(arch string) (manifest, signature string) {
+	if arch == "arm64" {
+		return "update-windows-arm64.json", "update-windows-arm64.sig"
+	}
+	return UpdateManifestName, UpdateSignatureName
+}
+
+func updateInstallerName(version, arch string) string {
+	return "MultiPan-" + version + "-" + InstallerPlatform(arch) + "-setup.exe"
+}
+
+func (u VerifiedUpdate) VerifyInstallerArchitecture(asset io.ReaderAt) error {
+	arch, err := ExecutableArchitecture(asset)
+	if err != nil || InstallerPlatform(arch) != u.manifest.Platform {
+		return errors.New("更新安装包的 PE 架构与签名清单不一致")
+	}
+	return nil
 }
 
 func (u VerifiedUpdate) VerifyInstaller(asset io.Reader) error {

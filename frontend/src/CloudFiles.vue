@@ -20,17 +20,30 @@ import {useUploadReview} from './useUploadReview'
 import AppIcon from './AppIcon.vue'
 import ShareDialog from './ShareDialog.vue'
 import BatchShareDialog from './BatchShareDialog.vue'
-import type {Account,CloudFolder,CloudEntry,FilePage,BatchDownloadItem,BatchDownloadResult,DownloadResult,DownloadInput,File as SourceFile,RestoredFileForMove,RelayInput,MoveFileInput,CopyDestinationLocation} from '../bindings/multipan/internal/transfer/models'
-const props=defineProps<{accounts:Account[];accountId:string;blocked?:boolean;view?:'files'|'downloads';refreshKey?:number;locationRequest?:{accountId:string;id:string;breadcrumbs?:CloudFolder[];nonce:number;moveFile?:RestoredFileForMove}|null}>()
-const emit=defineEmits<{account:[id:string];saved:[id:string,folder:string,path:string];renamed:[id:string];queued:[];add:[];edit:[id:string,relogin:boolean];mutation:[active:boolean];downloads:[];uploads:[];viewFiles:[];downloadStatus:[active:boolean,count:number];relayCopy:[inputs:RelayInput[],directory:boolean]}>()
+import type {Account,CloudFolder,CloudEntry,FilePage,BatchDownloadItem,BatchDownloadResult,DownloadResult,DownloadInput,File as SourceFile,RestoredFileForMove,RelayInput,MoveFileInput,CopyDestinationLocation,ShareRecreation,ShareSourceLocation} from '../bindings/multipan/internal/transfer/models'
+const props=defineProps<{accounts:Account[];accountId:string;blocked?:boolean;view?:'files'|'downloads';refreshKey?:number;locationRequest?:{accountId:string;id:string;breadcrumbs?:CloudFolder[];nonce:number;moveFile?:RestoredFileForMove;shareSource?:ShareSourceLocation;recreateShare?:boolean}|null}>()
+const emit=defineEmits<{account:[id:string];saved:[id:string,folder:string,path:string];renamed:[id:string];queued:[];add:[];edit:[id:string,relogin:boolean];mutation:[active:boolean];downloads:[];uploads:[];viewFiles:[];shareReceipt:[kind:'share',accountId:string,receiptId:string];downloadStatus:[active:boolean,count:number];relayCopy:[inputs:RelayInput[],directory:boolean]}>()
 function editCurrentAccount(relogin=false){if(!canNavigate.value||!account.value)return;closeContext();clearDrag();emit('edit',account.value.id,relogin&&canWebLogin.value)}
 const canWebLogin=computed(()=>['lanzou','quark','pan123','baidu','guangya'].includes(account.value?.kind??''))
 const account=computed(()=>props.accounts.find(a=>a.id===props.accountId)??props.accounts[0])
 function cloudName(kind:string){return ({lanzou:'蓝奏云',quark:'夸克网盘',pan123:'123 云盘',baidu:'百度网盘',ctdav:'诚通网盘',ctfile:'诚通 OpenAPI',guangya:'光鸭云盘',webdav:'WebDAV'} as Record<string,string>)[kind]??kind}
 const canShare=computed(()=>['lanzou','quark','pan123','baidu','guangya'].includes(account.value?.kind??''))
-const shareTarget=ref<{accountId:string;parentId:string;kind:string;entry:CloudEntry}|null>(null)
-function openShare(entry:CloudEntry){const a=account.value,p=page.value;if(!a||!p||!canShare.value||!canDrop.value)return;closeContext();clearDrag();shareTarget.value={accountId:a.id,parentId:p.currentId,kind:a.kind,entry:{...entry}};emit('mutation',true)}
+const shareTarget=ref<{accountId:string;parentId:string;kind:string;entry:CloudEntry;group?:CloudEntry[];recreation?:ShareRecreation}|null>(null)
+function openShare(entry:CloudEntry,recreation?:ShareRecreation,group?:CloudEntry[]){
+ const a=account.value,p=page.value
+ if(!a||!p||!canShare.value||!canDrop.value)return
+ closeContext();clearDrag()
+ shareTarget.value={accountId:a.id,parentId:p.currentId,kind:a.kind,entry:{...entry},recreation,group}
+ emit('mutation',true)
+}
 function closeShare(){shareTarget.value=null;emit('mutation',false)}
+function openShareReceipt(id:string,batch=false){
+ const target=batch?batchShareTarget.value:shareTarget.value
+ if(!id||!target||props.blocked||target.accountId!==account.value?.id)return
+ if(batch)closeBatchShare()
+ else closeShare()
+ emit('shareReceipt','share',target.accountId,id)
+}
 const batchShareTarget=ref<{accountId:string;parentId:string;kind:string;entries:CloudEntry[];initialSelection:CloudEntry[]}|null>(null)
 function openBatchShare(useSelection=true){const a=account.value,p=page.value;if(!a||!p||!canShare.value||!canDrop.value)return;closeContext();clearDrag();batchShareTarget.value={accountId:a.id,parentId:p.currentId,kind:a.kind,entries:entries.value.map(e=>({...e})),initialSelection:useSelection?selectedShareEntries.value.map(e=>({...e})):[]};emit('mutation',true)}
 function closeBatchShare(){batchShareTarget.value=null;emit('mutation',false)}
@@ -79,16 +92,21 @@ function openTrash(group:CloudEntry[]){const a=account.value,p=page.value;if(!a|
 function closeTrash(){trashTarget.value=null;emit('mutation',false)}
 async function trashChanged(){trashHistoryVersion.value++;selectedIds.value=[];selectedFolderIds.value=[];if(page.value)await load(page.value.currentId,page.value.breadcrumbs??undefined)}
 function contextTrash(){const entry=contextState.value?.entry,group=contextShareGroup.value;closeContext();if(entry)openTrash(group?selectedShareEntries.value:[entry])}
+const guangyaNativeCopyMaxFile=2*1024**3
+function snapshotCopyAllows(entries:CloudEntry[]){
+ return entries.length>0&&entries.length<=20&&entries.every(entry=>!entry.folder&&entry.size!=null&&entry.size>0&&entry.size<=snapshotMaxFile)&&
+  entries.reduce((total,entry)=>total+(entry.size??0),0)<=snapshotMaxBatch
+}
 function copyAllows(entries:CloudEntry[]){
  if(!canCopy.value||!entries.length||entries.length>50)return false
  if(account.value?.kind==='lanzou')return entries.length<=20
  if(account.value?.kind==='quark'){
   if(entries.some(entry=>entry.folder))return entries.length===1
-  return entries.length<=20&&entries.every(entry=>entry.size!=null&&entry.size>0&&entry.size<=snapshotMaxFile)&&
-   entries.reduce((total,entry)=>total+(entry.size??0),0)<=snapshotMaxBatch
+  return snapshotCopyAllows(entries)
  }
  if(account.value?.kind==='guangya'){
-  return entries.every(entry=>entry.folder||entry.size!=null&&entry.size>=0&&entry.size<=2*1024*1024*1024)
+  if(snapshotCopyAllows(entries))return true
+  return entries.every(entry=>entry.folder||entry.size!=null&&entry.size>=0&&entry.size<=guangyaNativeCopyMaxFile)
  }
  return true
 }
@@ -100,6 +118,19 @@ function contextCopy(){const entry=contextState.value?.entry,group=contextShareG
 const selectedIds=ref<string[]>([])
 type MoveResult={name:string;success:boolean;message:string;skipped?:boolean}
 const moveResults=ref<MoveResult[]>([]),stopMoving=ref(false)
+const copyRetry=ref<{scope:string;parentId:string;revision:number;entries:CloudEntry[]}|null>(null)
+const copyRetryEntries=computed(()=>{
+ const retry=copyRetry.value,p=page.value
+ if(!retry||!p||retry.scope!==accountScope.value||retry.parentId!==p.currentId||retry.revision!==(props.refreshKey??0))return []
+ const entries=retry.entries.map(original=>p.entries?.find(entry=>
+  entry.id===original.id&&entry.folder===original.folder&&entry.name===original.name&&entry.size===original.size&&entry.objectId===original.objectId))
+ return entries.every((entry):entry is CloudEntry=>!!entry)?entries:[]
+})
+function openCopyRetry(){
+ const entries=copyRetryEntries.value
+ if(!canNavigate.value||!canDrop.value||!entries.length||!copyAllows(entries))return
+ openMove(entries[0],entries,'','copy')
+}
 const currentCopy=ref<MoveFileInput|null>(null),stoppingCopy=ref(false),copyStopError=ref('')
 async function stopCurrentCopy(){
  const input=currentCopy.value
@@ -300,6 +331,7 @@ function message(e:unknown){return e instanceof Error?e.message:String(e)}
 async function load(id:string,crumbs?:CloudFolder[],historyIndex?:number){
  const a=account.value;if(!a)return
  const scope=accountSource(a)
+ if(copyRetry.value&&(copyRetry.value.scope!==scope||copyRetry.value.parentId!==id||copyRetry.value.revision!==(props.refreshKey??0)))copyRetry.value=null
  resetDrops(false)
  const ticket=++request;busy.value=true;error.value='';notice.value='';query.value='';page.value=null;createOpen.value=false;createName.value='';createError.value='';renameTarget.value=null;renameError.value='';moveTargets.value=[];moveError.value=''
  try{const next=await api.ListCloudFiles(a.id,id);if(disposed||ticket!==request)return;if(crumbs&&!['baidu','ctdav','webdav'].includes(a.kind))next.breadcrumbs=crumbs;const location={id:next.currentId,breadcrumbs:next.breadcrumbs??[]};if(historyIndex===undefined||!browseHistory.commit(scope,historyIndex,location))browseHistory.record(scope,location);navigationVersion.value++;page.value=next}
@@ -313,9 +345,13 @@ function openCopyDestination(accountId:string,location:CopyDestinationLocation){
 async function loadFileLocation(location:NonNullable<typeof props.locationRequest>){
  const ticket=request+1
  await load(location.id,location.breadcrumbs)
+ if(disposed||ticket!==request||account.value?.id!==location.accountId||!page.value||error.value)return
+ if(location.shareSource){
+  selectShareSource(location.shareSource,location.recreateShare)
+  return
+ }
  const source=location.moveFile
- if(!source||!source.receiptId||disposed||ticket!==request||account.value?.id!==location.accountId)return
- if(!page.value||error.value)return
+ if(!source?.receiptId)return
  const matches=page.value.entries?.filter(entry=>entry.id===source.id)??[]
  if(page.value.currentId!==location.id||matches.length!==1||matches[0].folder||
     matches[0].name!==source.name||matches[0].size!==source.size||
@@ -325,6 +361,34 @@ async function loadFileLocation(location:NonNullable<typeof props.locationReques
  }
  if(!canDrop.value||!canNavigate.value)return
  openMove(matches[0],[matches[0]],source.receiptId)
+}
+function selectShareSource(source:ShareSourceLocation,recreate=false){
+ const a=account.value,p=page.value
+ const targets=source.targets
+ if(!a||!p||!canDrop.value||!canNavigate.value||source.accountId!==a.id)return
+ if(!targets?.length){
+  notice.value='已打开原目录。回执缺少可核对的原项目标识，请手动选择。'
+  return
+ }
+ const matches:CloudEntry[]=[]
+ if(p.currentId===source.parentId){
+  for(const target of targets){
+   const found=(p.entries??[]).filter(entry=>entry.id===target.id&&entry.folder===target.folder)
+   if(found.length!==1||found[0].name!==target.name)break
+   matches.push(found[0])
+  }
+ }
+ const baiduIds=matches.map(entry=>entry.objectId??'').sort()
+ const validBaiduIds=a.kind!=='baidu'||!!source.baiduIds?.length&&
+  JSON.stringify(baiduIds)===JSON.stringify([...source.baiduIds].sort())
+ if(matches.length!==targets.length||!validBaiduIds){
+  notice.value='未能核对全部原项目，可能已移动、更名或更换。请检查后手动选择。'
+  return
+ }
+ selectedIds.value=matches.filter(entry=>!entry.folder).map(entry=>entry.id)
+ selectedFolderIds.value=matches.filter(entry=>entry.folder).map(entry=>entry.id)
+ notice.value='已选中原分享的 '+matches.length+' 个项目。'
+ if(recreate&&source.recreation)openShare(matches[0],source.recreation,matches.length>1?matches:undefined)
 }
 async function save(){const a=account.value,p=page.value;if(!a||!p||busy.value||saving.value||error.value)return;saving.value=true;const path=currentPath.value;try{await api.SetDefaultFolder(a.id,p.currentId,path);if(disposed)return;if(account.value?.id===a.id)notice.value='默认上传位置已设为：'+path;emit('saved',a.id,p.currentId,path)}catch(e){if(!disposed&&account.value?.id===a.id)error.value=message(e)}finally{if(!disposed)saving.value=false}}
 async function openCreate(){if(!page.value||busy.value||saving.value||!canCreate.value)return;clearDrag();renameTarget.value=null;createOpen.value=true;createName.value='';createError.value='';notice.value='';await nextTick();nameInput.value?.focus()}
@@ -346,9 +410,15 @@ async function move(destinationId:string,destinationPath:string,destinationTrail
  const copying=fileOperation.value==='copy',verb=copying?'复制':'移动'
  if(!a||!p||!targets.length||targets.length>50||!copying&&targets.some(f=>f.folder&&!canMoveFolders.value)||saving.value||busy.value||props.blocked||destinationId===p.currentId)return
  if(copying&&!copyAllows(targets))return
- if(copying&&a.kind==='quark'){
+ const guangyaRelay=copying&&a.kind==='guangya'&&directCopy&&snapshotCopyAllows(targets)
+ if(copying&&a.kind==='guangya'&&!guangyaRelay&&targets.some(entry=>!entry.folder&&(entry.size??0)>guangyaNativeCopyMaxFile)){
+  notice.value='超过 2 GiB 的光鸭文件请选择「经中转复制到此目录」。'
+  return
+ }
+ if(copying&&a.kind==='quark'||guangyaRelay){
   const directory=targets[0].folder
-  if(directCopy||directory&&(destinationId===targets[0].id||destinationTrail?.some(folder=>folder.id===targets[0].id)))return
+  if(!guangyaRelay&&directCopy||directory&&(destinationId===targets[0].id||destinationTrail?.some(folder=>folder.id===targets[0].id)))return
+  copyRetry.value=null
   moveTargets.value=[]
   emit('relayCopy',targets.map(target=>({sourceAccountId:a.id,targetAccountId:a.id,parentId:p.currentId,
    destinationId,entryId:target.id,name:target.name,size:directory?0:target.size!})),directory)
@@ -363,17 +433,25 @@ async function move(destinationId:string,destinationPath:string,destinationTrail
  if(directCopy&&!native123Copy&&!directGuangyaCopy)return
  if(directCopy&&targets.some(target=>target.folder&&(target.id===destinationId||trail.some(folder=>folder.id===target.id))))return
  const restoreReceipt=copying?'':restoredMoveReceipt
+ const retryScope={scope:accountScope.value,parentId:p.currentId,revision:props.refreshKey??0}
  if(restoreReceipt&&(targets.length!==1||targets[0].folder))return
  restoredMoveReceipt=''
  const makeEntry=(target:CloudEntry)=>({folder:target.folder,input:{accountId:a.id,parentId:p.currentId,destinationId,entryId:target.id,name:target.name,...((native123Copy||nativeGuangyaCopy||target.folder&&['quark','pan123','guangya'].includes(a.kind))?{sourceTrail:crumbs??[],destinationTrail:trail}:{})}})
- moveTargets.value=[];saving.value=true;moving.value=true;stopMoving.value=false;copyStopError.value='';moveError.value='';moveResults.value=[];emit('mutation',true)
+ copyRetry.value=null;moveTargets.value=[];saving.value=true;moving.value=true;stopMoving.value=false;copyStopError.value='';moveError.value='';moveResults.value=[];emit('mutation',true)
  const results:MoveResult[]=[],scope=accountScope.value
  try{
   if(targets.length>1&&(copying||targets.some(t=>t.folder))){
    notice.value='正在预检查整批项目与目标目录，尚未'+verb
    const preflight=directGuangyaCopy?api.ValidateGuangyaDirectCopyBatch:directCopy?api.ValidatePan123DirectCopyBatch:native123Copy?api.ValidatePan123CopyBatch:nativeGuangyaCopy?api.ValidateGuangyaCopyBatch:nativeLanzouCopy?api.ValidateLanzouCopyBatch:api.ValidateCloudMoveBatch
    try{await preflight(targets.map(makeEntry))}
-   catch(e){if(disposed||accountScope.value!==scope)return;moveError.value='整批未提交：'+message(e);moveResults.value=targets.map(t=>({name:t.name,success:false,skipped:true,message:'预检查未通过，未发送'+verb+'请求'}));notice.value='预检查未通过，请处理后重新选择';return}
+   catch(e){
+    if(disposed||accountScope.value!==scope)return
+    moveError.value='整批未提交：'+message(e)
+    moveResults.value=targets.map(t=>({name:t.name,success:false,skipped:true,message:'预检查未通过，未发送'+verb+'请求'}))
+    if(copying)copyRetry.value={...retryScope,entries:targets.map(entry=>({...entry}))}
+    notice.value='预检查未通过'
+    return
+   }
   }
   for(const target of targets){
    if(disposed||account.value?.id!==a.id||accountScope.value!==scope)break
@@ -389,6 +467,10 @@ async function move(destinationId:string,destinationPath:string,destinationTrail
   await load(p.currentId,crumbs)
   if(disposed||account.value?.id!==a.id||accountScope.value!==scope)return
   moveResults.value=results
+  if(copying){
+   const unsent=targets.filter((_,index)=>results[index]?.skipped)
+   if(unsent.length)copyRetry.value={...retryScope,entries:unsent.map(entry=>({...entry}))}
+  }
   if(!copying&&targets.some(t=>t.folder))emit('renamed',a.id)
   const successes=results.filter(r=>r.success).length,failures=results.filter(r=>!r.success&&!r.skipped).length,skipped=results.filter(r=>r.skipped).length
   notice.value=targets.length===1&&successes===1?`「${targets[0].name}」${verb}到：${destinationPath}${(native123Copy||nativeGuangyaCopy||nativeLanzouCopy)&&!directCopy?'下的新子目录，名称见本机复制记录':''}`:`${verb}结束：${successes} 个成功，${failures} 个未完成${skipped?`，${skipped} 个未执行`:''}。目标：${destinationPath}`
@@ -431,6 +513,7 @@ onUnmounted(()=>{if(typeof document!=='undefined'){document.removeEventListener(
    <p v-if="error" class="banner error" role="alert">{{error}}<button :disabled="!canNavigate" @click="editCurrentAccount(canWebLogin)">{{canWebLogin?'重新登录':'修改连接'}}</button><button :disabled="busy||saving" @click="load(root)">返回根目录重试</button></p>
    <p v-if="notice&&notice!==downloadMessage" class="banner notice" role="status">{{notice}}<button v-if="notice.includes('上传任务')" class="text-button" @click="emit('uploads')">查看上传任务</button></p>
    <p v-if="moveError" class="banner error" role="alert">{{moveError}}<button :disabled="busy||saving" @click="load(page?.currentId??root,page?.breadcrumbs??undefined)">刷新当前目录</button></p>
+   <button v-if="copyRetryEntries.length" class="secondary" :disabled="!canDrop||!canNavigate" @click="openCopyRetry">继续复制未提交项（{{copyRetryEntries.length}}）…</button>
    <div class="cloud-table-wrap" :aria-busy="busy" @contextmenu.prevent="openContext($event)" @scroll="closeContext"><table class="cloud-table cloud-has-download"><thead><tr><th scope="col" :aria-sort="sortState('name')"><div class="table-name-head"><input type="checkbox" aria-label="全选当前显示的项目" title="全选项目（Ctrl+A）" :checked="allSelected" :indeterminate="selectedShareEntries.length>0&&!allSelected" :disabled="!canDrop||!entries.length" @change="selectAll(($event.target as HTMLInputElement).checked)"/><button class="sort-header" :disabled="saving||busy" @click="setSort('name')">名称<span v-if="sortState('name')!=='none'">{{sortState('name')==='ascending'?'↑':'↓'}}</span></button></div></th><th scope="col" :aria-sort="sortState('type')"><button class="sort-header" :disabled="saving||busy" @click="setSort('type')">类型<span v-if="sortState('type')!=='none'">{{sortState('type')==='ascending'?'↑':'↓'}}</span></button></th><th scope="col" :aria-sort="sortState('size')"><button class="sort-header" :title="account.kind==='lanzou'?'按显示大小排序；蓝奏大小为近似值，未知大小排最后':'按大小排序；未知大小排最后'" :disabled="saving||busy" @click="setSort('size')">大小<span v-if="sortState('size')!=='none'">{{sortState('size')==='ascending'?'↑':'↓'}}</span></button></th><th scope="col">操作</th></tr></thead><tbody>
     <tr v-if="busy"><td colspan="4" class="cloud-table-state" role="status">正在读取文件…</td></tr><tr v-else-if="error"><td colspan="4" class="cloud-table-state">暂时无法读取，请刷新或重新登录网盘。</td></tr><tr v-else-if="!entries.length"><td colspan="4" class="cloud-table-state"><strong>{{hasListFilter?'没有匹配项':'文件夹为空'}}</strong><button v-if="hasListFilter" class="secondary clear-list-filter" :disabled="saving" @click="clearListFilters">清除筛选</button></td></tr>
     <tr v-for="f in busy||error?[]:entries" :key="(f.folder?'d:':'f:')+f.id" :class="{'cloud-drop-hover':f.folder&&dragOver===f.id,'cloud-row-selected':f.folder?selectedFolderIds.includes(f.id):selectedIds.includes(f.id)}" @contextmenu.stop.prevent="openContext($event,f)" @click="selectFile($event,f)" @dblclick="f.folder&&!saving&&go({id:f.id,name:f.name})" @dragover="f.folder&&overDestination($event,f.id)" @dragleave="leaveDestination" @drop="f.folder&&dropDestination($event,f.id,currentPath+' / '+f.name)"><td><div class="cloud-entry-cell"><input v-if="!f.folder" type="checkbox" :aria-label="'选择'+f.name" :checked="selectedIds.includes(f.id)" :disabled="!canDrop" @change="toggleSelection(f.id,($event.target as HTMLInputElement).checked)"/><input v-else type="checkbox" :aria-label="'选择文件夹'+f.name" :checked="selectedFolderIds.includes(f.id)" :disabled="!canDrop" @change="toggleFolderSelection(f.id,($event.target as HTMLInputElement).checked)"/><button v-if="f.folder" class="cloud-folder-link" :disabled="saving" :draggable="canDrop&&canMoveFolders" @dragstart="beginDrag($event,f)" @dragend="clearDrag" @click.stop="go({id:f.id,name:f.name})"><AppIcon name="files"/><span>{{f.name}}</span></button><span v-else class="cloud-file-name" :draggable="canDrop" @dragstart="beginDrag($event,f)" @dragend="clearDrag"><AppIcon name="file"/><span>{{f.name}}</span></span></div></td><td :title="fileType(f)">{{fileType(f)}}</td><td>{{size(f)}}</td><td><div class="entry-actions"><button v-if="f.folder?canDownloadFolders:canDownload" class="entry-download" :aria-label="'下载'+f.name" :disabled="saving||busy" @click="f.folder?downloadFolder(f):download(f)"><AppIcon name="download"/><span>下载</span></button><button v-if="f.folder||canShare||canCreate||canTrash||copyAllows([f])" class="icon-button entry-more" :disabled="!canNavigate" aria-haspopup="menu" :aria-expanded="!!contextState?.trigger&&contextState.entry===f" :aria-label="'更多操作：'+f.name" title="更多操作" @click.stop="openEntryActions($event,f)"><AppIcon name="more"/></button></div></td></tr>
@@ -477,8 +560,8 @@ onUnmounted(()=>{if(typeof document!=='undefined'){document.removeEventListener(
   </template>
   <template v-else><span class="context-caption">当前目录</span><button role="menuitem" :disabled="!canDrop" @click="contextAction('upload')"><AppIcon name="upload"/>上传文件</button><button role="menuitem" :disabled="!canDrop" @click="contextAction('create')"><AppIcon name="plus"/>新建文件夹</button><button role="menuitem" @click="contextAction('refresh')"><AppIcon name="refresh"/>刷新<kbd>F5</kbd></button><button role="menuitem" :disabled="!canDrop||!selectableEntries.length" @click="contextAction('all')"><AppIcon name="check"/>全选文件<kbd>Ctrl+A</kbd></button></template>
  </div>
- <BatchShareDialog v-if="batchShareTarget" v-bind="batchShareTarget" @close="closeBatchShare"/>
- <ShareDialog v-if="shareTarget" :account-id="shareTarget.accountId" :parent-id="shareTarget.parentId" :kind="shareTarget.kind" :entry="shareTarget.entry" @close="closeShare"/>
+ <BatchShareDialog v-if="batchShareTarget" v-bind="batchShareTarget" @receipt="openShareReceipt($event,true)" @close="closeBatchShare"/>
+ <ShareDialog v-if="shareTarget" :account-id="shareTarget.accountId" :parent-id="shareTarget.parentId" :kind="shareTarget.kind" :entry="shareTarget.entry" :recreation="shareTarget.recreation" :group="shareTarget.group" :account-name="shareTarget.recreation?account?.name:undefined" :source-path="shareTarget.recreation?currentPath:undefined" show-receipt-link @receipt="openShareReceipt($event)" @close="closeShare"/>
  <div v-if="createOpen" class="modal-backdrop" @click.self="closeCreate"><section class="operation-dialog" role="dialog" aria-modal="true" @keydown.tab="trapDialogFocus" aria-labelledby="create-title"><div class="modal-heading"><h2 id="create-title">新建文件夹</h2><button class="icon-button" :disabled="saving" aria-label="关闭" @click="closeCreate"><AppIcon name="close"/></button></div><p class="dialog-location">{{cloudName(account?.kind??'')}} / {{currentPath}}</p>  <form v-if="createOpen" class="cloud-create" @submit.prevent="create" @keydown.esc.prevent="closeCreate"><label for="new-folder-name">新文件夹名称</label><div class="cloud-create-fields"><input id="new-folder-name" ref="nameInput" v-model="createName" required maxlength="50" :disabled="saving" autocomplete="off" placeholder="例如：资料备份" aria-describedby="folder-name-help"/><button type="submit" class="primary" :disabled="saving||!createName">{{creating?'正在创建…':'创建'}}</button><button type="button" class="secondary" :disabled="saving" @click="closeCreate">取消</button></div><p id="folder-name-help">将在当前目录创建。最多 50 个字符。<template v-if="account.kind==='lanzou'">空格和英文括号请用下划线代替。</template></p><p v-if="createError" class="form-error" role="alert">{{createError}}</p></form>
 </section></div>
  <div v-if="renameTarget" class="modal-backdrop" @click.self="closeRename"><section class="operation-dialog" role="dialog" aria-modal="true" @keydown.tab="trapDialogFocus" aria-labelledby="rename-title"><div class="modal-heading"><h2 id="rename-title">重命名</h2><button class="icon-button" :disabled="saving" aria-label="关闭" @click="closeRename"><AppIcon name="close"/></button></div>  <form v-if="renameTarget" class="cloud-create" @submit.prevent="rename" @keydown.esc.prevent="closeRename"><label for="rename-entry-name">重命名{{renameTarget.folder?'文件夹':'文件'}}：{{renameTarget.name}}</label><div class="cloud-create-fields"><input id="rename-entry-name" ref="renameInput" v-model="renameName" required maxlength="50" :disabled="saving" autocomplete="off" aria-label="新名称"/><button type="submit" class="primary" :disabled="saving||!renameName||renameName===renameTarget.name">{{renaming?'正在重命名…':'保存名称'}}</button><button type="button" class="secondary" :disabled="saving" @click="closeRename">取消</button></div><p>最多 50 个字符，已有同名项目时不修改。<template v-if="account.kind==='lanzou'">名称不能包含空格和英文括号；文件需保留原扩展名，能否改名以账号权限为准。</template></p><p v-if="renameError" class="form-error" role="alert">{{renameError}}</p></form>
@@ -492,7 +575,7 @@ onUnmounted(()=>{if(typeof document!=='undefined'){document.removeEventListener(
    <TrashHistory v-if="canTrash&&account" :account-id="account.id" :refresh-key="accountScope+String(props.refreshKey??'')+String(trashHistoryVersion)" :blocked="saving||busy||!!trashTarget||props.blocked" @mutation="trashHistoryBusy=$event;emit('mutation',$event)"/>
    <CopyHistory v-if="canCopy&&account&&account.kind!=='quark'" :account-id="account.id" :refresh-key="accountScope+String(props.refreshKey??'')+String(copyHistoryVersion)" :blocked="saving||busy||props.blocked" @open="openCopyDestination" @mutation="copyHistoryBusy=$event;emit('mutation',$event)"/>
   </details>
-  <FolderPicker v-if="moveTargets.length&&account&&page" :account-id="account.id" :account-name="cloudName(account.kind)" :kind="account.kind" :initial-folder="page.currentId" :initial-breadcrumbs="page.breadcrumbs??[]" :purpose="fileOperation" :source-names="moveTargets.map(f=>f.name)" :forbidden-roots="moveTargets.filter(f=>f.folder).map(f=>f.id)" :source-name="moveTargets.length===1?moveTargets[0].name:moveTargets.length+' 个项目（含 '+moveTargets.filter(f=>f.folder).length+' 个文件夹）'" :direct-copy="fileOperation==='copy'&&(account.kind==='pan123'||account.kind==='guangya'&&moveTargets.every(target=>target.folder))" @close="moveTargets=[]" @selected="move"/>
+  <FolderPicker v-if="moveTargets.length&&account&&page" :account-id="account.id" :account-name="cloudName(account.kind)" :kind="account.kind" :initial-folder="page.currentId" :initial-breadcrumbs="page.breadcrumbs??[]" :purpose="fileOperation" :source-names="moveTargets.map(f=>f.name)" :forbidden-roots="moveTargets.filter(f=>f.folder).map(f=>f.id)" :source-name="moveTargets.length===1?moveTargets[0].name:moveTargets.length+' 个项目（含 '+moveTargets.filter(f=>f.folder).length+' 个文件夹）'" :direct-copy="fileOperation==='copy'&&(account.kind==='pan123'||account.kind==='guangya'&&(moveTargets.every(target=>target.folder)||snapshotCopyAllows(moveTargets)))" :snapshot-copy="fileOperation==='copy'&&account.kind==='guangya'&&snapshotCopyAllows(moveTargets)" :snapshot-only="fileOperation==='copy'&&account.kind==='guangya'&&moveTargets.some(target=>!target.folder&&(target.size??0)>guangyaNativeCopyMaxFile)" @close="moveTargets=[]" @selected="move"/>
 
 </div>
 </template>

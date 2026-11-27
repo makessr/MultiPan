@@ -27,6 +27,7 @@ type directoryFixture struct {
 	src, dst                    map[string]treeEntry
 	creates, puts, sourceWrites int
 	targetLists                 int
+	moveDeletes                 []string
 	m                           *Manager
 	badPath                     string
 	declaredSize                int64
@@ -92,6 +93,24 @@ func (f *directoryFixture) serve(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, prefix), "/")
 	if id == "" {
 		id = "/"
+	}
+	if source && r.Method == "DELETE" && strings.HasPrefix(f.mode, "move-") {
+		f.moveDeletes = append(f.moveDeletes, id)
+		row, exists := entries[id]
+		if !exists || row.folder || r.Header.Get("If-Match") != "\"v1\"" {
+			w.WriteHeader(412)
+			return
+		}
+		delete(entries, id)
+		if f.mode == "move-stop" {
+			_ = f.m.PauseRelays()
+		}
+		if f.mode == "move-ack-lost" {
+			w.WriteHeader(503)
+			return
+		}
+		w.WriteHeader(204)
+		return
 	}
 	if source && r.Method != "PROPFIND" && r.Method != "GET" {
 		f.sourceWrites++
@@ -494,17 +513,32 @@ func TestRelayDirectoryDamagedState(t *testing.T) {
 
 func TestRelaySnapshotLimitsAndCancellation(t *testing.T) {
 	for _, kind := range []string{"quark", "guangya"} {
-		size := int64(2 << 30)
+		size := int64(8 << 30)
 		row := CloudEntry{ID: "file", Size: &size}
 		if kind == "quark" {
 			row.revision = "123"
 		}
 		if !relaySnapshotEligible(kind, row) {
-			t.Fatal(kind, "a 2 GiB cloud original should be eligible")
+			t.Fatal(kind, "an 8 GiB cloud original should be eligible")
 		}
 		size++
 		if relaySnapshotEligible(kind, row) {
-			t.Fatal(kind, "a file over 2 GiB must be rejected")
+			t.Fatal(kind, "a file over 8 GiB must be rejected")
+		}
+	}
+	snapshotInput := RelayInput{SourceAccountID: "source", ParentID: "0", EntryID: "id", Name: "file", Size: relaySnapshotMaxFile, TargetAccountID: "target", DestinationID: "/"}
+	var unopened Manager
+	tooBig := snapshotInput
+	tooBig.Size++
+	for _, tc := range []struct {
+		inputs []RelayInput
+		limit  string
+	}{
+		{[]RelayInput{tooBig}, "单文件最多8GiB"},
+		{[]RelayInput{snapshotInput, snapshotInput, snapshotInput}, "整批最多 16 GiB"},
+	} {
+		if n, err := unopened.QueueRelaySnapshots(context.Background(), tc.inputs); n != 0 || err == nil || !strings.Contains(err.Error(), tc.limit) {
+			t.Fatal("oversize preflight did not stop before using account state", n, err)
 		}
 	}
 	m, err := NewManager(filepath.Join(t.TempDir(), "state.enc"), nil)
@@ -520,7 +554,7 @@ func TestRelaySnapshotLimitsAndCancellation(t *testing.T) {
 	if m.RelayPreflight() == nil {
 		t.Fatal("snapshot preflight must be visible before content reads")
 	}
-	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) < 175*time.Minute {
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) < 355*time.Minute {
 		t.Fatal("large preflight inherited the former short timeout")
 	}
 	reached := make(chan struct{})
@@ -579,6 +613,123 @@ func TestRelayStopDuringPreflight(t *testing.T) {
 			defer f.mu.Unlock()
 			if f.creates != 0 || f.puts != 0 {
 				t.Fatal("stopped preflight wrote target")
+			}
+		})
+	}
+}
+
+func TestRelayBatchMove(t *testing.T) {
+	for _, mode := range []string{"files", "folder", "changed-second-target", "ack-lost", "stop"} {
+		t.Run(mode, func(t *testing.T) {
+			f, m, input := newDirectoryFixture(t, "success")
+			ctx := context.Background()
+			f.mu.Lock()
+			f.src["/tree/extra.txt"] = treeEntry{data: []byte("extra")}
+			f.mu.Unlock()
+			var folderID string
+			if mode == "files" {
+				first, second := input, input
+				first.ParentID, first.EntryID, first.Name, first.Size = "/tree", "/tree/file.txt", "file.txt", 8
+				second.ParentID, second.EntryID, second.Name, second.Size = "/tree", "/tree/extra.txt", "extra.txt", 5
+				if _, err := m.QueueRelays(ctx, []RelayInput{first, second}); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := m.QueueRelayDirectory(ctx, input); err != nil {
+				t.Fatal(err)
+			}
+			jobs := awaitRelay(t, m)
+			var ids []string
+			byID := make(map[string]RelayJob)
+			for _, job := range jobs {
+				byID[job.ID] = job
+				if job.Folder && len(job.MoveFileIDs) > 0 {
+					folderID, ids = job.ID, job.MoveFileIDs
+				} else if mode == "files" && job.CanMove {
+					ids = append(ids, job.ID)
+				}
+			}
+			if mode == "files" && (folderID != "" || len(ids) != 2) || mode != "files" && (folderID == "" || len(ids) != 3) {
+				t.Fatalf("unexpected move selection: %#v", jobs)
+			}
+			if err := m.StartRelayMoves([]string{ids[0], ids[0]}, folderID, "删除源文件"); err == nil {
+				t.Fatal("duplicate selection accepted")
+			}
+			if err := m.StartRelayMoves(ids, folderID, "移入回收站"); err == nil {
+				t.Fatal("incorrect source operation accepted")
+			}
+			if folderID != "" {
+				if err := m.StartRelayMoves(ids[:1], folderID, "删除源文件"); err == nil {
+					t.Fatal("partial directory selection accepted")
+				}
+				if err := m.StartRelayMove(ids[0], "删除源文件"); err == nil {
+					t.Fatal("child accepted without its directory receipt")
+				}
+			}
+			f.mu.Lock()
+			f.src["/tree/new-after-copy.txt"] = treeEntry{data: []byte("new")}
+			f.mode = "move-" + mode
+			if mode == "changed-second-target" {
+				bad := byID[ids[1]]
+				target := path.Join(bad.Destination, bad.Name)
+				f.dst[target] = treeEntry{data: []byte("changed")}
+			}
+			f.mu.Unlock()
+			if err := m.StartRelayMoves(ids, folderID, "删除源文件"); err != nil {
+				t.Fatal(err)
+			}
+			want := make([]string, len(ids))
+			for i := range want {
+				want[i] = "moved"
+			}
+			deletes := len(ids)
+			switch mode {
+			case "changed-second-target":
+				deletes = 1
+				want[1], want[2] = "verified", "verified"
+			case "ack-lost", "stop":
+				deletes = 1
+				want[0], want[1], want[2] = "move_unknown", "verified", "verified"
+			}
+			assertStates := func(jobs []RelayJob) {
+				t.Helper()
+				for _, job := range jobs {
+					for i, id := range ids {
+						if job.ID == id && job.State != want[i] {
+							t.Errorf("%s: state %s, want %s (%s)", job.Name, job.State, want[i], job.Message)
+						}
+					}
+					if job.ID == folderID && want[0] == "move_unknown" && len(job.MoveFileIDs) > 0 {
+						t.Error("directory move offered while a prior delete is uncertain")
+					}
+				}
+			}
+			assertStates(awaitRelay(t, m))
+			if mode == "ack-lost" {
+				if err := m.CheckRelayMove(ids[0]); err != nil {
+					t.Fatal(err)
+				}
+				assertStates(awaitRelay(t, m))
+			}
+			reloaded, err := NewManager(m.path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reloaded.Close()
+			assertStates(reloaded.RelayJobs())
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if len(f.moveDeletes) != deletes {
+				t.Fatalf("source deletes %v, wanted %d", f.moveDeletes, deletes)
+			}
+			for i, entry := range f.moveDeletes {
+				if entry != byID[ids[i]].SourcePath {
+					t.Fatalf("deleted %q instead of %q", entry, byID[ids[i]].SourcePath)
+				}
+			}
+			for _, name := range []string{"/tree", "/tree/empty", "/tree/sub", "/tree/new-after-copy.txt"} {
+				if _, exists := f.src[name]; !exists {
+					t.Errorf("source entry outside the confirmed file list was removed: %s", name)
+				}
 			}
 		})
 	}

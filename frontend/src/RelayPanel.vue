@@ -9,7 +9,7 @@ const props=defineProps<{accounts:Account[];blocked?:boolean;fileCopy?:{inputs:R
 const emit=defineEmits<{copyConsumed:[]}>()
 const available=computed(()=>props.accounts.filter(a=>['webdav','ctdav','pan123','baidu','quark','guangya'].includes(a.kind)))
 const sourceId=ref(''),targetId=ref(''),sourceFolder=ref('/'),targetFolder=ref('/'),sourcePath=ref('根目录'),targetPath=ref('根目录')
-const targets=computed(()=>available.value.filter(a=>a.id!==sourceId.value||a.kind==='quark'))
+const targets=computed(()=>available.value.filter(a=>a.id!==sourceId.value||['quark','guangya'].includes(a.kind)))
 const source=computed(()=>available.value.find(a=>a.id===sourceId.value)),target=computed(()=>targets.value.find(a=>a.id===targetId.value))
 const sameAccount=computed(()=>!!source.value&&source.value.id===target.value?.id)
 const sameFolder=computed(()=>sameAccount.value&&sourceFolder.value===targetFolder.value)
@@ -22,14 +22,55 @@ let disposed=false,generation=0,timer:ReturnType<typeof setTimeout>|undefined,po
 const directory=ref<CloudEntry|null>(null)
 const moveTarget=ref<RelayJob|null>(null),moveText=ref(''),moveAgreed=ref(false),moveDialog=ref<HTMLElement|null>(null)
 let moveTrigger:HTMLElement|null=null
-function relayMovesToRecycle(kind:string|undefined){return kind==='pan123'||kind==='quark'}
+function relayMovesToRecycle(kind:string|undefined){return kind==='pan123'||kind==='quark'||kind==='baidu'}
 const moveToRecycle=computed(()=>relayMovesToRecycle(moveTarget.value?.sourceKind))
 const moveConfirmation=computed(()=>moveToRecycle.value?'移入回收站':'删除源文件')
-const canMoveStart=computed(()=>!disposed&&!props.blocked&&!busy.value&&!jobBusy.value&&!!moveTarget.value&&!!jobs.value.find(j=>j.id===moveTarget.value?.id)?.canMove&&moveText.value===moveConfirmation.value&&moveAgreed.value)
-async function prepareMove(row:RelayJob,event?:Event){if(disposed||props.blocked||busy.value||jobBusy.value||picker.value||directory.value||!row.canMove)return;moveTrigger=event?.currentTarget as HTMLElement|null;moveTarget.value={...row};moveText.value='';moveAgreed.value=false;await nextTick();moveDialog.value?.focus()}
-async function cancelMove(){if(jobBusy.value)return;moveTarget.value=null;moveText.value='';moveAgreed.value=false;await nextTick();moveTrigger?.focus()}
-async function startMove(){if(disposed||!canMoveStart.value||!moveTarget.value)return;const row=moveTarget.value;jobBusy.value=row.id;error.value='';try{await api.MoveCloudRelay(row.id,moveText.value);if(!disposed){moveTarget.value=null;moveText.value='';moveAgreed.value=false;message.value='已开始搬运预检，重新核对缓存、目标和源内容后才提交源操作。';clearTimeout(timer);await loadJobs()}}catch(e){if(!disposed)error.value=String(e)}finally{if(!disposed)jobBusy.value=''}}
-const supportsDirectories=computed(()=>!!source.value&&!!target.value&&!sameFolder.value)
+const moveSelection=ref<string[]>([]),moveRows=ref<RelayJob[]>([])
+const selectedMoves=computed(()=>jobs.value.filter(j=>j.canMove&&moveSelection.value.includes(j.id)))
+const canMoveStart=computed(()=>{
+ const row=moveTarget.value
+ if(disposed||props.blocked||formBusy.value||jobBusy.value||!row||!moveRows.value.length||moveText.value!==moveConfirmation.value||!moveAgreed.value)return false
+ const current=jobs.value.find(j=>j.id===row.id)
+ if(row.folder)return current?.moveFileIds?.join(',')===moveRows.value.map(j=>j.id).join(',')
+ return moveRows.value.every(item=>jobs.value.some(j=>j.id===item.id&&j.canMove))
+})
+function sameMovePair(a:RelayJob,b:RelayJob){return a.sourceAccountId===b.sourceAccountId&&a.targetAccountId===b.targetAccountId}
+function canSelectMove(row:RelayJob){const first=selectedMoves.value[0];return !!row.canMove&&(!first||sameMovePair(first,row))&&(selectedMoves.value.length<20||moveSelection.value.includes(row.id))}
+function toggleMove(row:RelayJob,checked:boolean){
+ if(checked&&!canSelectMove(row))return
+ moveSelection.value=selectedMoves.value.filter(j=>j.id!==row.id).map(j=>j.id)
+ if(checked)moveSelection.value.push(row.id)
+}
+async function prepareMove(row:RelayJob,event?:Event,rows?:RelayJob[]){
+ if(disposed||props.blocked||formBusy.value||jobBusy.value||picker.value||directory.value||moveTarget.value)return
+ const files=row.folder?row.moveFileIds?.map(id=>jobs.value.find(j=>j.id===id)).filter((j):j is RelayJob=>!!j):rows??[row]
+ if(!files?.length||row.folder&&files.length!==row.moveFileIds?.length||!row.folder&&!files.every(j=>j.canMove&&sameMovePair(j,row)))return
+ moveTrigger=event?.currentTarget as HTMLElement|null
+ moveTarget.value={...row}
+ moveRows.value=files.map(j=>({...j}))
+ moveText.value=''
+ moveAgreed.value=false
+ error.value=''
+ await nextTick()
+ moveDialog.value?.focus()
+}
+async function cancelMove(){if(jobBusy.value)return;moveTarget.value=null;moveRows.value=[];moveText.value='';moveAgreed.value=false;await nextTick();moveTrigger?.focus()}
+async function startMove(){
+ if(!canMoveStart.value||!moveTarget.value)return
+ const row=moveTarget.value,ids=moveRows.value.map(j=>j.id)
+ jobBusy.value=row.id;error.value=''
+ try{
+  if(!row.folder&&ids.length===1)await api.MoveCloudRelay(row.id,moveText.value)
+  else await api.MoveCloudRelays(ids,row.folder?row.id:'',moveText.value)
+  if(!disposed){moveTarget.value=null;moveRows.value=[];moveSelection.value=moveSelection.value.filter(id=>!ids.includes(id));moveText.value='';moveAgreed.value=false;message.value='已开始逐项核对并搬运。核对失败或结果待确认时，剩余文件会保留。';clearTimeout(timer);await loadJobs()}
+ }catch(e){if(!disposed)error.value=String(e)}finally{if(!disposed)jobBusy.value=''}
+}
+function moveAccount(row:RelayJob,end:'source'|'target'){
+ const id=end==='source'?row.sourceAccountId:row.targetAccountId
+ const account=props.accounts.find(a=>a.id===id)
+ return account?accountLabel(account):end==='source'?historyAccount(row.sourceKind,row.sourceName):historyAccount(row.targetKind,row.targetName)
+}
+const supportsDirectories=computed(()=>!!source.value&&!!target.value&&!sameFolder.value&&!(sameAccount.value&&source.value.kind==='guangya'))
 const directories=computed(()=>supportsDirectories.value?(page.value?.entries??[]).filter(e=>e.folder&&e.name.toLocaleLowerCase().includes(query.value.toLocaleLowerCase())):[])
 const files=computed(()=>(page.value?.entries??[]).filter(e=>!e.folder&&e.size!=null&&e.size>=0&&e.size<=(readCloudOriginal.value?snapshotMaxFile:8*1024**3)).sort((a,b)=>a.name.localeCompare(b.name,'zh-CN',{numeric:true})))
 const filtered=computed(()=>files.value.filter(e=>e.name.toLocaleLowerCase().includes(query.value.toLocaleLowerCase())))
@@ -116,7 +157,7 @@ onUnmounted(()=>{disposed=true;generation++;clearTimeout(timer)})
 <section class="relay-panel">
  <div class="heading"><h1>网盘中转</h1><button class="secondary" :disabled="blocked||!!jobBusy||!canPause" @click="control('pause')">停止全部中转</button></div>
 
- <p v-if="error" class="banner error" role="alert">{{error}}</p><p v-if="message" class="banner notice" role="status">{{message}}</p>
+ <p v-if="error&&!moveTarget" class="banner error" role="alert">{{error}}</p><p v-if="message" class="banner notice" role="status">{{message}}</p>
  <div class="relay-form">
   <fieldset>
    <legend>来源</legend>
@@ -133,7 +174,7 @@ onUnmounted(()=>{disposed=true;generation++;clearTimeout(timer)})
  <p v-if="sameFolder" class="recycle-note">同账号复制请选择不同的目标目录。</p>
  <template v-if="canReadCloudOriginal">
   <label class="share-switch"><input type="checkbox" :checked="readCloudOriginal" :disabled="blocked||formBusy||!!picker" @change="changeSourceReadMode"/>读取网盘原件用于核对</label>
-  <p class="recycle-note" v-if="readCloudOriginal">单文件最多 2 GiB，整批或目录合计最多 4 GiB。预读最长 3 小时，核对完整内容后入队，可用「停止全部中转」取消。</p>
+  <p class="recycle-note" v-if="readCloudOriginal">单文件最多 8 GiB，整批或目录合计最多 16 GiB。预读最长 6 小时，核对完整内容后入队，可用「停止全部中转」取消。</p>
  </template>
  <label v-if="page" class="relay-search">来源文件<input v-model="query" type="search" placeholder="筛选文件名" :disabled="formBusy||blocked"/></label>
  <div v-if="preflight" class="relay-preflight" aria-label="网盘原件预读">
@@ -145,8 +186,8 @@ onUnmounted(()=>{disposed=true;generation++;clearTimeout(timer)})
  </div>
  <p v-else-if="busy" role="status">正在读取或创建队列…</p>
  <p v-if="target?.kind==='guangya'||target?.kind==='quark'" class="recycle-note">上传前会核对目标目录是否有同名项目。中转期间请避免在其他客户端向同一目录写入同名文件。</p>
- <div class="relay-files" v-if="page"><label v-for="e in filtered" :key="e.id"><input type="checkbox" :checked="selection.includes(e.id)" :disabled="formBusy||blocked||(selection.length>=20||unsupportedEmptyTarget&&e.size===0)&&!selection.includes(e.id)" @change="toggle(e.id,($event.target as HTMLInputElement).checked)"/><span>{{e.name}}</span><small>{{bytes(e.size??0)}}</small></label><p v-if="!filtered.length">{{readCloudOriginal?'没有可核对且不超过 2 GiB 的文件。':['quark','guangya'].includes(source?.kind??'')?'没有本机上传指纹匹配的文件。':'没有符合条件的文件（文件夹和超过8 GiB的文件不列入）。'}}</p></div>
- <p v-if="exceedsSnapshotTotal" class="banner error" role="alert">网盘原件预读整批最多 4 GiB，请减少选择。</p>
+ <div class="relay-files" v-if="page"><label v-for="e in filtered" :key="e.id"><input type="checkbox" :checked="selection.includes(e.id)" :disabled="formBusy||blocked||(selection.length>=20||unsupportedEmptyTarget&&e.size===0)&&!selection.includes(e.id)" @change="toggle(e.id,($event.target as HTMLInputElement).checked)"/><span>{{e.name}}</span><small>{{bytes(e.size??0)}}</small></label><p v-if="!filtered.length">{{readCloudOriginal?'没有可核对且不超过 8 GiB 的文件。':['quark','guangya'].includes(source?.kind??'')?'没有本机上传指纹匹配的文件。':'没有符合条件的文件（文件夹和超过8 GiB的文件不列入）。'}}</p></div>
+ <p v-if="exceedsSnapshotTotal" class="banner error" role="alert">网盘原件预读整批最多 16 GiB，请减少选择。</p>
  <p v-if="blockedEmpty" class="banner error" role="alert">所选目标暂不支持空文件。请取消选择空文件。</p><div class="relay-summary"><p v-if="chosen.length">已选 {{chosen.length}} 项 · {{bytes(total)}} · 保留源文件</p><button class="primary" :disabled="!ready" @click="queue">创建中转复制队列</button></div>
  <div v-if="supportsDirectories&&page" class="relay-files"><strong>可复制的目录</strong><div v-for="e in directories" :key="e.id" class="relay-actions"><span>{{e.name}}</span><button class="secondary" :disabled="blocked||formBusy||!!picker||!canCopyDirectory(e)" @click="prepareDirectory(e)">复制此目录…</button></div><p v-if="!directories.length">当前目录没有可选子目录。</p></div>
  <section v-if="directory" class="share-history-card" role="alertdialog" aria-label="确认复制目录"><strong>{{directory.name}} · {{accountLabel(source)}} → {{accountLabel(target)}} / {{targetPath}}</strong><p>整棵目录先预检，最多8层、20个目录（含根）及20个文件，单文件8 GiB，全部中转记录合计32 GiB。超限、读取不完整、缺少可靠版本或目标同名则整批不创建。DAV须提供强 ETag，123 和百度须提供可核验的原内容 MD5，夸克和光鸭来源的每个文件须匹配本机上传指纹，或开启原件预读建立指纹。百度、夸克和光鸭目标含空文件时整棵拒绝。两端请选择不重叠的目录。确认后按清单逐项创建目录和复制文件，源保留；之后新增的源文件不包含在清单中。</p><p>这是逐项操作，失败可能留下部分目录与文件，不自动回滚或删除。目录创建未确认时不重发，也不合并已有目录；先核对父目录，再继续子项。</p><div class="relay-actions"><button class="primary" :disabled="blocked||formBusy||!supportsDirectories" @click="queueDirectory">确认预检并创建目录队列</button><button class="secondary" :disabled="busy" @click="directory=null">取消</button></div></section>
@@ -154,14 +195,22 @@ onUnmounted(()=>{disposed=true;generation++;clearTimeout(timer)})
   <p>DAV 来源需要强 ETag，123 和百度来源须能核验原始 MD5。发现目标同名时停止，并发写入仍可能产生需要核对的项目。完整回读目标并核对 SHA-256 和源版本后才确认内容，会消耗下载流量与网盘额度。</p>
   <p>缓存以明文保存在 %APPDATA%\MultiPan\relay-cache，下载时需保留至少 512 MiB 磁盘余量。退出程序后需手动继续或核对。待核对项目保留缓存，禁止重复上传和清理记录。</p></details>
  <h2>中转记录 <span v-if="jobs.length">（{{jobs.length}}）</span></h2>
+ <div v-if="selectedMoves.length" class="relay-actions">
+  <button class="secondary" :disabled="blocked||formBusy||!!jobBusy||!!moveTarget" @click="prepareMove(selectedMoves[0],$event,selectedMoves)">搬运所选文件（{{selectedMoves.length}}）…</button>
+  <button class="secondary" :disabled="!!moveTarget" @click="moveSelection=[]">取消选择</button>
+ </div>
  <p v-if="!jobs.length" class="recycle-note">暂无中转任务</p>
- <article v-for="j in visibleJobs" :key="j.id" class="share-history-card"><div class="share-history-card-heading"><strong>{{j.name}}</strong><span>{{j.folder&&j.state==='verified'?'目录创建已核对':label(j.state)}}</span></div><p :title="historyAccount(j.sourceKind,j.sourceName)+' → '+historyAccount(j.targetKind,j.targetName)+' / '+j.destination">{{historyAccount(j.sourceKind,j.sourceName)}} → {{historyAccount(j.targetKind,j.targetName)}} / {{j.destination}} · {{bytes(j.size)}}</p><p v-if="['moving','move_unknown','moved'].includes(j.state)">来源原位置：{{j.sourcePath}}</p><p v-if="j.phase" role="status">{{j.phase}} · {{bytes(j.progress)}} / {{bytes(j.size)}}</p><p>{{j.message}}</p><p v-if="j.folder&&j.state==='verified'&&!j.canClear">子项有独立记录；清理时请先处理子项记录。</p><small>本机缓存：{{bytes(j.cacheBytes)}}<template v-if="j.sha256"> · SHA256：{{j.sha256}}</template></small><div class="relay-actions"><button v-if="j.canResume" class="secondary" :disabled="blocked||formBusy||!!jobBusy" @click="control('resume',j)">继续未提交任务</button><button v-if="j.canCheck" class="secondary" :disabled="blocked||formBusy||!!jobBusy" @click="control('check',j)">只读核对目标</button><button v-if="j.canMove" class="secondary" :disabled="blocked||formBusy||!!jobBusy||!!moveTarget" @click="prepareMove(j,$event)">{{relayMovesToRecycle(j.sourceKind)?'完成搬运并移入回收站…':'完成搬运并删除源文件…'}}</button><button v-if="j.canCheckMove" class="secondary" :disabled="blocked||formBusy||!!jobBusy" @click="control('check-move',j)">只读核对搬运结果</button><button v-if="j.canClear" class="secondary" :disabled="blocked||formBusy||!!jobBusy" @click="control('clear',j)">清理记录及本机缓存</button></div></article>
+ <article v-for="j in visibleJobs" :key="j.id" class="share-history-card"><div class="share-history-card-heading"><label v-if="j.canMove" class="relay-move-select"><input type="checkbox" :aria-label="'选择搬运 '+j.name" :checked="moveSelection.includes(j.id)" :disabled="blocked||formBusy||!!jobBusy||!!moveTarget||!canSelectMove(j)" @change="toggleMove(j,($event.target as HTMLInputElement).checked)"/><strong>{{j.name}}</strong></label><strong v-else>{{j.name}}</strong><span>{{j.folder&&j.state==='verified'?'目录创建已核对':label(j.state)}}</span></div><p :title="historyAccount(j.sourceKind,j.sourceName)+' → '+historyAccount(j.targetKind,j.targetName)+' / '+j.destination">{{historyAccount(j.sourceKind,j.sourceName)}} → {{historyAccount(j.targetKind,j.targetName)}} / {{j.destination}} · {{bytes(j.size)}}</p><p v-if="['moving','move_unknown','moved'].includes(j.state)">来源原位置：{{j.sourcePath}}</p><p v-if="j.phase" role="status">{{j.phase}} · {{bytes(j.progress)}} / {{bytes(j.size)}}</p><p>{{j.message}}</p><p v-if="j.folder&&j.state==='verified'&&!j.canClear">子项有独立记录；清理时请先处理子项记录。</p><small>本机缓存：{{bytes(j.cacheBytes)}}<template v-if="j.sha256"> · SHA256：{{j.sha256}}</template></small><div class="relay-actions"><button v-if="j.canResume" class="secondary" :disabled="blocked||formBusy||!!jobBusy" @click="control('resume',j)">继续未提交任务</button><button v-if="j.canCheck" class="secondary" :disabled="blocked||formBusy||!!jobBusy" @click="control('check',j)">只读核对目标</button><button v-if="j.canMove" class="secondary" :disabled="blocked||formBusy||!!jobBusy||!!moveTarget" @click="prepareMove(j,$event)">{{relayMovesToRecycle(j.sourceKind)?'完成搬运并移入回收站…':'完成搬运并删除源文件…'}}</button><button v-if="j.moveFileIds?.length" class="secondary" :disabled="blocked||formBusy||!!jobBusy||!!moveTarget" @click="prepareMove(j,$event)">搬运目录内文件（{{j.moveFileIds.length}}）…</button><button v-if="j.canCheckMove" class="secondary" :disabled="blocked||formBusy||!!jobBusy" @click="control('check-move',j)">只读核对搬运结果</button><button v-if="j.canClear" class="secondary" :disabled="blocked||formBusy||!!jobBusy" @click="control('clear',j)">清理记录及本机缓存</button></div></article>
  <footer v-if="jobs.length>50" class="recycle-footer"><span>第 {{jobPage}} 页</span><button class="secondary" :disabled="jobPage<=1" @click="jobPage--">上一页</button><button class="secondary" :disabled="jobPage*50>=jobs.length" @click="jobPage++">下一页</button></footer>
- <div v-if="moveTarget" class="modal-backdrop" @click.self="cancelMove" @keydown.esc.prevent="cancelMove"><section ref="moveDialog" tabindex="-1" class="operation-dialog" role="dialog" aria-modal="true" aria-labelledby="relay-move-title" @keydown.tab="trapDialogFocus"><h2 id="relay-move-title">{{moveToRecycle?'完成搬运并移入回收站':'完成搬运并删除源文件'}}</h2><p>来源：{{historyAccount(moveTarget.sourceKind,moveTarget.sourceName)}} / {{moveTarget.sourcePath}}</p><p>保留目标：{{historyAccount(moveTarget.targetKind,moveTarget.targetName)}} / {{moveTarget.destination}} / {{moveTarget.name}}</p><p>{{bytes(moveTarget.size)}}</p><p class="banner error">{{moveToRecycle?'重新核对三份内容后，源文件会按文件 ID 移入来源网盘的回收站。请等搬运完成后再修改源文件。':'DAV 源文件会按原版本条件删除，可能无法通过回收站还原。'}}</p><p>将额外完整读取目标两次、源文件一次并校验本机缓存，使用正常下载额度和合计限速，可能耗时。</p><label class="move-confirm">输入“{{moveConfirmation}}”<input v-model="moveText" autocomplete="off" aria-label="搬运删除确认文字"/></label><label class="move-confirm"><input v-model="moveAgreed" type="checkbox"/>{{moveToRecycle?'我已核对来源和目标，同意将源文件移入来源网盘的回收站':'我已核对来源和目标，理解只保留目标与本机缓存，删除可能无法还原'}}</label><p>读取失败或内容/版本变化时不提交源删除；已提交未知只读核对、不重发、不清理缓存。停止全部中转会取消当前处理，已经发送的删除无法撤回。</p><div class="relay-actions"><button class="secondary" :disabled="!!jobBusy" @click="cancelMove">取消并保留源文件</button><button class="primary" :disabled="!canMoveStart" @click="startMove">确认开始搬运核对</button></div></section></div>
+ <div v-if="moveTarget" class="modal-backdrop" @click.self="cancelMove" @keydown.esc.prevent="cancelMove"><section ref="moveDialog" tabindex="-1" class="operation-dialog" role="dialog" aria-modal="true" aria-labelledby="relay-move-title" @keydown.tab="trapDialogFocus"><h2 id="relay-move-title">{{moveToRecycle?'完成搬运并移入回收站':'完成搬运并删除源文件'}}</h2><p>{{moveAccount(moveTarget,'source')}} → {{moveAccount(moveTarget,'target')}} · {{moveRows.length}} 个文件</p><p v-if="moveTarget.folder">源目录及新加入的文件会保留。</p><ul class="relay-move-files"><li v-for="row in moveRows" :key="row.id"><strong>{{row.name}} · {{bytes(row.size)}}</strong><div>来源 {{row.sourcePath}}</div><div>目标 {{row.destination}}</div></li></ul><p class="banner error">{{moveToRecycle?'重新核对三份内容后，源文件将移入来源网盘的回收站。':'DAV 源文件会按原版本条件删除，可能无法通过回收站还原。'}}</p><p>将额外完整读取目标两次、源文件一次并校验本机缓存，使用正常下载额度和合计限速，可能耗时。</p><label class="move-confirm">输入“{{moveConfirmation}}”<input v-model="moveText" autocomplete="off" aria-label="搬运删除确认文字"/></label><label class="move-confirm"><input v-model="moveAgreed" type="checkbox"/>{{moveToRecycle?'我已核对来源和目标，同意将源文件移入来源网盘的回收站':'我已核对来源和目标，理解只保留目标与本机缓存，删除可能无法还原'}}</label><p>按清单逐项处理。核对失败或结果待确认时停止，剩余源文件保留。</p><p v-if="error" class="banner error" role="alert">{{error}}</p><div class="relay-actions"><button class="secondary" :disabled="!!jobBusy" @click="cancelMove">取消并保留源文件</button><button class="primary" :disabled="!canMoveStart" @click="startMove">确认开始搬运核对</button></div></section></div>
  <FolderPicker :purpose="picker==='source'?'source':undefined" v-if="picker&&(picker==='source'?source:target)" :account-id="picker==='source'?sourceId:targetId" :account-name="accountName(picker==='source'?source:target)" :kind="(picker==='source'?source:target)!.kind" :initial-folder="picker==='source'?sourceFolder:targetFolder" @close="picker=''" @selected="folderChosen"/>
 </section>
 </template>
 <style scoped>
+.relay-move-select{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.relay-move-select input{width:16px;height:16px;flex:none;margin:0}
+.relay-move-files{max-height:12rem;overflow:auto;overflow-wrap:anywhere;padding-inline-start:1.5rem}
+.relay-move-files li+li{margin-top:.5rem}
 .move-confirm{display:flex;gap:10px;margin:14px 0;align-items:center}
 .move-confirm input:not([type=checkbox]){min-height:38px;font:inherit;padding:6px}
 .relay-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 0 16px}

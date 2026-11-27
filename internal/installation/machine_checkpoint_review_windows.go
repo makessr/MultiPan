@@ -30,53 +30,81 @@ type MachineCheckpointFile struct {
 	Backup          string `json:"backup"`
 }
 
-func (s *ScopedSandbox) ReviewMachineCheckpoint() (MachineCheckpointReview, error) {
+type openedMachineCheckpoint struct {
+	audit     *machineSecuritySnapshot
+	pins      *protectedMachineInstall
+	file      *os.File
+	record    machineCheckpoint
+	locations []string
+	names     []string
+}
+
+func (c *openedMachineCheckpoint) close() {
+	if c.file != nil {
+		_ = c.file.Close()
+	}
+	c.pins.close()
+}
+
+func (s *ScopedSandbox) openMachineCheckpoint(recovering bool) (_ *openedMachineCheckpoint, err error) {
 	layout, err := s.Layout(ScopeMachine)
 	if err != nil {
-		return MachineCheckpointReview{}, err
+		return nil, err
 	}
 	dir := layout.Directory
 	if err := ValidateTarget(dir, filepath.Join(s.root, "profiles")); err != nil {
-		return MachineCheckpointReview{}, err
+		return nil, err
 	}
 	if checkMachineInterrupted(dir) == nil {
-		return MachineCheckpointReview{}, nil
+		return nil, nil
 	}
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
-		return MachineCheckpointReview{}, err
+		return nil, err
 	}
 	policy := sandboxMachinePolicy(user.User.Sid.String())
 	audit, err := captureMachineSecurityAtFloor(filepath.Dir(dir), dir, policy, s.root)
 	if err != nil {
-		return MachineCheckpointReview{}, err
+		return nil, err
 	}
 	pins := protectedMachineInstall{pinned: map[string]windows.Handle{}}
-	defer pins.close()
+	defer func() {
+		if err != nil {
+			pins.close()
+		}
+	}()
 	for _, node := range audit.entries {
 		if node.directory {
 			if err := pins.pin(node.path); err != nil {
-				return MachineCheckpointReview{}, err
+				return nil, err
 			}
 		}
 	}
 	if err := audit.Check(); err != nil {
-		return MachineCheckpointReview{}, err
+		return nil, err
 	}
 
 	path := filepath.Join(dir, machineCheckpointName)
-	checkpoint, err := openMachineReviewFile(path)
-	if err != nil {
-		return MachineCheckpointReview{}, err
+	open := openMachineReviewFile
+	if recovering {
+		open = openMachineFile
 	}
-	defer checkpoint.Close()
+	checkpoint, err := open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = checkpoint.Close()
+		}
+	}()
 	if _, err := policy.nodeHandle(windows.Handle(checkpoint.Fd()), false, true, machineMutationMask); err != nil {
-		return MachineCheckpointReview{}, err
+		return nil, err
 	}
 	names := append(append([]string{}, PayloadNames...), Uninstaller, Marker)
 	record, err := decodeMachineCheckpoint(checkpoint, names)
 	if err != nil {
-		return MachineCheckpointReview{}, err
+		return nil, err
 	}
 
 	locations := []string{dir, filepath.Join(dir, record.Stage), filepath.Join(dir, record.Backup)}
@@ -84,39 +112,48 @@ func (s *ScopedSandbox) ReviewMachineCheckpoint() (MachineCheckpointReview, erro
 		node := machineAuditEntry{path: subdir, directory: true, protected: true, optional: true, mask: machineMutationMask}
 		node.before, err = policy.node(subdir, true, true, true, node.mask)
 		if err != nil {
-			return MachineCheckpointReview{}, err
+			return nil, err
 		}
 		if !node.before.Missing {
 			if err := pins.pin(subdir); err != nil {
-				return MachineCheckpointReview{}, err
+				return nil, err
 			}
 			observed, err := policy.nodeHandle(pins.pinned[subdir], true, true, node.mask)
 			if err != nil {
-				return MachineCheckpointReview{}, err
+				return nil, err
 			}
 			if observed != node.before {
-				return MachineCheckpointReview{}, errors.New("核对期间机器安装目录已变化")
+				return nil, errors.New("核对期间机器安装目录已变化")
 			}
 		}
 		audit.entries = append(audit.entries, node)
 	}
 
-	review := MachineCheckpointReview{Present: true, PreviousVersion: record.Previous.Version}
-	for _, name := range names {
+	return &openedMachineCheckpoint{audit, &pins, checkpoint, record, locations, names}, nil
+}
+
+func (s *ScopedSandbox) ReviewMachineCheckpoint() (MachineCheckpointReview, error) {
+	c, err := s.openMachineCheckpoint(false)
+	if err != nil || c == nil {
+		return MachineCheckpointReview{}, err
+	}
+	defer c.close()
+	review := MachineCheckpointReview{Present: true, PreviousVersion: c.record.Previous.Version}
+	for _, name := range c.names {
 		var states [3]string
-		for i, location := range locations {
-			state, err := reviewMachineCheckpointFile(audit, filepath.Join(location, name), name, record)
+		for i, location := range c.locations {
+			state, err := reviewMachineCheckpointFile(c.audit, filepath.Join(location, name), name, c.record)
 			if err != nil {
 				return MachineCheckpointReview{}, err
 			}
 			states[i] = state
 		}
 		review.Files = append(review.Files, MachineCheckpointFile{
-			Name: name, OriginalPresent: slices.Contains(record.Original, name),
+			Name: name, OriginalPresent: slices.Contains(c.record.Original, name),
 			Installed: states[0], Staging: states[1], Backup: states[2],
 		})
 	}
-	if err := audit.Check(); err != nil {
+	if err := c.audit.Check(); err != nil {
 		return MachineCheckpointReview{}, err
 	}
 	return review, nil
@@ -208,6 +245,10 @@ func reviewMachineCheckpointFile(audit *machineSecuritySnapshot, path, name stri
 		return "", err
 	}
 	audit.entries = append(audit.entries, node)
+	return machineCheckpointFileState(file, name, record)
+}
+
+func machineCheckpointFileState(file *os.File, name string, record machineCheckpoint) (string, error) {
 	digest := sha256.New()
 	const maxManaged = 100 << 20
 	var previous bool

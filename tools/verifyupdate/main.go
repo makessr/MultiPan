@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"multipan/internal/installation"
@@ -26,27 +27,29 @@ func run() error {
 	signature := flag.String("signature", "", "local detached Ed25519 signature")
 	publisher := flag.String("publisher-key", "", "trusted Ed25519 public key in hex")
 	current := flag.String("installed-version", "", "installed MultiPan version")
+	firstInstall := flag.String("first-install-version", "", "exact release version for local first-install verification")
 	installer := flag.String("installer", "", "local installer to verify")
+	arch := flag.String("arch", runtime.GOARCH, "Windows installer architecture (amd64 or arm64)")
 	releaseURL := flag.String("release-url", "", "trusted HTTPS release directory to check")
 	stageDir := flag.String("stage-dir", "", "existing absolute directory for a verified update installer")
 	requireAuthenticode := flag.Bool("require-authenticode", false, "verify the embedded Windows signature of a local or staged installer")
 	flag.Parse()
-	if *publisher == "" || *current == "" || flag.NArg() != 0 {
+	if *publisher == "" || (*current == "") == (*firstInstall == "") || flag.NArg() != 0 {
 		flag.Usage()
-		return errors.New("请指定可信发布公钥和当前版本")
+		return errors.New("请指定可信发布公钥，并在当前安装版本和首次安装发行版本中选择一项")
 	}
 	key, err := hex.DecodeString(*publisher)
 	if err != nil {
 		return errors.New("可信发布公钥格式无效")
 	}
 	if *releaseURL != "" {
-		if *metadata != "" || *signature != "" || *installer != "" {
+		if *metadata != "" || *signature != "" || *installer != "" || *firstInstall != "" {
 			return errors.New("在线检查和本地安装包核对请分别执行")
 		}
 		if *requireAuthenticode && *stageDir == "" {
 			return errors.New("在线 Authenticode 核对需要指定下载暂存目录")
 		}
-		update, err := installation.CheckUpdateOrigin(context.Background(), *releaseURL, key, *current)
+		update, err := installation.CheckUpdateOrigin(context.Background(), *releaseURL, key, *current, *arch)
 		if errors.Is(err, installation.ErrSameUpdateVersion) {
 			return json.NewEncoder(os.Stdout).Encode(map[string]string{"status": "current", "version": *current})
 		}
@@ -86,7 +89,13 @@ func run() error {
 		return err
 	}
 	defer sig.Close()
-	update, err := installation.VerifyUpdateManifest(manifest, sig, key, *current, time.Now())
+	verify := installation.VerifyUpdateManifest
+	version := *current
+	if *firstInstall != "" {
+		verify = installation.VerifyFirstInstallManifest
+		version = *firstInstall
+	}
+	update, err := verify(manifest, sig, key, version, *arch, time.Now())
 	if err != nil {
 		return err
 	}
@@ -94,7 +103,7 @@ func run() error {
 		return errors.New("安装包文件名与签名清单不一致")
 	}
 	openInstaller := openRegular
-	if *requireAuthenticode {
+	if *requireAuthenticode || *firstInstall != "" {
 		openInstaller = installation.OpenSignedUpdateInstaller
 	}
 	asset, err := openInstaller(*installer)
@@ -102,6 +111,9 @@ func run() error {
 		return err
 	}
 	defer asset.Close()
+	if err := update.VerifyInstallerArchitecture(asset); err != nil {
+		return err
+	}
 	if err := update.VerifyInstaller(asset); err != nil {
 		return err
 	}
