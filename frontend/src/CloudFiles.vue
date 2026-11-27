@@ -410,8 +410,9 @@ async function move(destinationId:string,destinationPath:string,destinationTrail
  const copying=fileOperation.value==='copy',verb=copying?'复制':'移动'
  if(!a||!p||!targets.length||targets.length>50||!copying&&targets.some(f=>f.folder&&!canMoveFolders.value)||saving.value||busy.value||props.blocked||destinationId===p.currentId)return
  if(copying&&!copyAllows(targets))return
- const guangyaRelay=copying&&a.kind==='guangya'&&directCopy&&snapshotCopyAllows(targets)
- if(copying&&a.kind==='guangya'&&!guangyaRelay&&targets.some(entry=>!entry.folder&&(entry.size??0)>guangyaNativeCopyMaxFile)){
+ const guangyaOversize=copying&&a.kind==='guangya'&&targets.some(entry=>!entry.folder&&(entry.size??0)>guangyaNativeCopyMaxFile)
+ const guangyaRelay=guangyaOversize&&directCopy
+ if(guangyaOversize&&!guangyaRelay){
   notice.value='超过 2 GiB 的光鸭文件请选择「经中转复制到此目录」。'
   return
  }
@@ -429,7 +430,7 @@ async function move(destinationId:string,destinationPath:string,destinationTrail
  const native123Copy=copying&&a.kind==='pan123'
  const nativeGuangyaCopy=copying&&a.kind==='guangya'
  const nativeLanzouCopy=copying&&a.kind==='lanzou'
- const directGuangyaCopy=directCopy&&nativeGuangyaCopy&&targets.every(target=>target.folder)
+ const directGuangyaCopy=directCopy&&nativeGuangyaCopy&&!guangyaRelay
  if(directCopy&&!native123Copy&&!directGuangyaCopy)return
  if(directCopy&&targets.some(target=>target.folder&&(target.id===destinationId||trail.some(folder=>folder.id===target.id))))return
  const restoreReceipt=copying?'':restoredMoveReceipt
@@ -457,7 +458,7 @@ async function move(destinationId:string,destinationPath:string,destinationTrail
    if(disposed||account.value?.id!==a.id||accountScope.value!==scope)break
    if(stopMoving.value){for(const remaining of targets.slice(results.length))results.push({name:remaining.name,success:false,skipped:true,message:'已停止，未执行'});break}
    notice.value=`正在${verb} ${results.length+1} / ${targets.length}：${target.name}`
-   try{const entry=makeEntry(target);if(copying)currentCopy.value=entry.input;if(directGuangyaCopy)await api.CopyGuangyaFolderToDirectory(entry);else if(directCopy)await (target.folder?api.CopyPan123FolderToDirectory:api.CopyPan123FileToDirectory)(entry);else if(copying)await api.CopyCloudEntry(entry);else if(restoreReceipt)await api.MoveConfirmedRestoredFile(a.id,restoreReceipt,destinationId);else await (target.folder?api.MoveCloudFolder:api.MoveCloudFile)(entry.input);results.push({name:target.name,success:true,message:directGuangyaCopy?'已核对副本目录结构和文件 SHA-256':directCopy?(target.folder?'已核对副本目录结构、文件大小与网盘 MD5':'已在目标目录核对副本的大小与网盘 MD5'):native123Copy?'已在独立子目录核对项目、大小和网盘 MD5':(nativeGuangyaCopy||nativeLanzouCopy)?'已在独立子目录核对源和副本的 SHA256':copying?'已复制（源与目标完整元数据清单已核对）':'已移动'})}
+   try{const entry=makeEntry(target);if(copying)currentCopy.value=entry.input;if(directGuangyaCopy)await (target.folder?api.CopyGuangyaFolderToDirectory:api.CopyGuangyaFileToDirectory)(entry);else if(directCopy)await (target.folder?api.CopyPan123FolderToDirectory:api.CopyPan123FileToDirectory)(entry);else if(copying)await api.CopyCloudEntry(entry);else if(restoreReceipt)await api.MoveConfirmedRestoredFile(a.id,restoreReceipt,destinationId);else await (target.folder?api.MoveCloudFolder:api.MoveCloudFile)(entry.input);results.push({name:target.name,success:true,message:directGuangyaCopy?(target.folder?'已核对副本目录结构和文件 SHA-256':'已在目标目录核对副本的大小与 SHA-256'):directCopy?(target.folder?'已核对副本目录结构、文件大小与网盘 MD5':'已在目标目录核对副本的大小与网盘 MD5'):native123Copy?'已在独立子目录核对项目、大小和网盘 MD5':(nativeGuangyaCopy||nativeLanzouCopy)?'已在独立子目录核对源和副本的 SHA256':copying?'已复制（源与目标完整元数据清单已核对）':'已移动'})}
    catch(e){results.push({name:target.name,success:false,message:message(e)});if(copying||targets.some(t=>t.folder))stopMoving.value=true}
    finally{currentCopy.value=null;stoppingCopy.value=false;copyStopError.value=''}
    moveResults.value=[...results]
@@ -575,7 +576,7 @@ onUnmounted(()=>{if(typeof document!=='undefined'){document.removeEventListener(
    <TrashHistory v-if="canTrash&&account" :account-id="account.id" :refresh-key="accountScope+String(props.refreshKey??'')+String(trashHistoryVersion)" :blocked="saving||busy||!!trashTarget||props.blocked" @mutation="trashHistoryBusy=$event;emit('mutation',$event)"/>
    <CopyHistory v-if="canCopy&&account&&account.kind!=='quark'" :account-id="account.id" :refresh-key="accountScope+String(props.refreshKey??'')+String(copyHistoryVersion)" :blocked="saving||busy||props.blocked" @open="openCopyDestination" @mutation="copyHistoryBusy=$event;emit('mutation',$event)"/>
   </details>
-  <FolderPicker v-if="moveTargets.length&&account&&page" :account-id="account.id" :account-name="cloudName(account.kind)" :kind="account.kind" :initial-folder="page.currentId" :initial-breadcrumbs="page.breadcrumbs??[]" :purpose="fileOperation" :source-names="moveTargets.map(f=>f.name)" :forbidden-roots="moveTargets.filter(f=>f.folder).map(f=>f.id)" :source-name="moveTargets.length===1?moveTargets[0].name:moveTargets.length+' 个项目（含 '+moveTargets.filter(f=>f.folder).length+' 个文件夹）'" :direct-copy="fileOperation==='copy'&&(account.kind==='pan123'||account.kind==='guangya'&&(moveTargets.every(target=>target.folder)||snapshotCopyAllows(moveTargets)))" :snapshot-copy="fileOperation==='copy'&&account.kind==='guangya'&&snapshotCopyAllows(moveTargets)" :snapshot-only="fileOperation==='copy'&&account.kind==='guangya'&&moveTargets.some(target=>!target.folder&&(target.size??0)>guangyaNativeCopyMaxFile)" @close="moveTargets=[]" @selected="move"/>
+  <FolderPicker v-if="moveTargets.length&&account&&page" :account-id="account.id" :account-name="cloudName(account.kind)" :kind="account.kind" :initial-folder="page.currentId" :initial-breadcrumbs="page.breadcrumbs??[]" :purpose="fileOperation" :source-names="moveTargets.map(f=>f.name)" :forbidden-roots="moveTargets.filter(f=>f.folder).map(f=>f.id)" :source-name="moveTargets.length===1?moveTargets[0].name:moveTargets.length+' 个项目（含 '+moveTargets.filter(f=>f.folder).length+' 个文件夹）'" :direct-copy="fileOperation==='copy'&&(account.kind==='pan123'||account.kind==='guangya')" :snapshot-copy="fileOperation==='copy'&&account.kind==='guangya'&&moveTargets.some(target=>!target.folder&&(target.size??0)>guangyaNativeCopyMaxFile)" :snapshot-only="fileOperation==='copy'&&account.kind==='guangya'&&moveTargets.some(target=>!target.folder&&(target.size??0)>guangyaNativeCopyMaxFile)" @close="moveTargets=[]" @selected="move"/>
 
 </div>
 </template>

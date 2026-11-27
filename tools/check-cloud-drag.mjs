@@ -58,6 +58,7 @@ export async function CancelCloudCopy(accountId,entryId,destinationId){(calls.co
 export async function CopyPan123FileToDirectory(entry){calls.directCopies??=[];calls.directCopies.push(entry);if(controls.failDirectCopy)throw Error('秒传待核对');return {}}
 export async function CopyPan123FolderToDirectory(entry){(calls.directFolderCopies??=[]).push(entry);return {}}
 export async function CopyGuangyaFolderToDirectory(entry){(calls.guangyaDirectFolders??=[]).push(entry);return {}}
+export async function CopyGuangyaFileToDirectory(entry){(calls.guangyaDirectFiles??=[]).push(entry);return {}}
 export async function ValidateGuangyaDirectCopyBatch(entries){(calls.guangyaDirectPreflights??=[]).push(entries);if(controls.failGuangyaDirectPreflight)throw Error('模拟同名冲突')}
 export async function ValidateLanzouCopyBatch(entries){(calls.lanzouCopyPreflights??=[]).push(entries);if(controls.failLanzouCopyPreflight)throw Error('模拟第二项大小未知')}
 export async function LocateCloudCopyDestination(accountId,receiptId){(calls.copyLocations??=[]).push({accountId,receiptId});return {folderId:'/target'}}
@@ -880,8 +881,11 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
   await browser.move('root','根目录',undefined,true);
   assert.equal(relayEvents.filter(event=>event[0]==='relayCopy').length,0);
   await browser.move('destination','目标',undefined,true);
-  assert.deepEqual(relayEvents.at(-1),['relayCopy',[{sourceAccountId:'large-copy',targetAccountId:'large-copy',parentId:'root',
-   destinationId:'destination',entryId:entry.id,name:entry.name,size:entry.size}],false]);
+  assert.equal(calls.guangyaDirectFiles?.length??0,1);
+  assert.equal(calls.guangyaDirectFiles[0].input.entryId,entry.id);
+  assert.equal(calls.guangyaDirectFiles[0].input.destinationId,'destination');
+  assert.equal(relayEvents.filter(event=>event[0]==='relayCopy').length,0);
+  assert.match(browser.moveResults.value.at(-1).message,/SHA-256/);
   const larger={...entry,size:entry.size+1};
   browser.openCopy(larger);
   const relayCount=relayEvents.filter(event=>event[0]==='relayCopy').length;
@@ -889,8 +893,10 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
   await browser.move('destination','目标');
   assert.equal(calls.copies.length,nativeCount);
   assert.equal(relayEvents.filter(event=>event[0]==='relayCopy').length,relayCount);
+  assert.equal(calls.guangyaDirectFiles.length,1);
   await browser.move('destination','目标',undefined,true);
   assert.equal(relayEvents.at(-1)[1][0].size,larger.size);
+  assert.equal(calls.guangyaDirectFiles.length,1);
   browser.page.value={currentId:'root',breadcrumbs:[{id:'root',name:'根目录'}],entries:[folder]};
   browser.selectedFolderIds.value=[folder.id];
   browser.openSelectedCopy();
@@ -920,12 +926,16 @@ const shortcutPage=state.page.value;state.handleFileKey(keyEvent('F5'));await se
   assert.deepEqual(calls.guangyaCopyPreflights.at(-1),calls.copies.slice(previousCopies));
   assert.deepEqual(calls.copies.slice(previousCopies).map(row=>row.folder),[true,true,false]);
   selectGroup();
+  const foldersBefore=calls.guangyaDirectFolders?.length??0,filesBefore=calls.guangyaDirectFiles.length;
   await browser.move('destination','目标',trail,true);
-  assert.equal(calls.guangyaDirectFolders?.length??0,0);
+  assert.equal(calls.guangyaDirectFolders.length,foldersBefore+2);
+  assert.equal(calls.guangyaDirectFiles.length,filesBefore+1);
+  assert.equal(calls.guangyaDirectFiles.at(-1).input.entryId,entry.id);
   browser.moveTargets.value=[];
   browser.openCopy(folder);
   await browser.move('nested','资料 / 子目录',[...trail,folder,{id:'nested',name:'子目录'}],true);
-  assert.equal(calls.guangyaDirectFolders?.length??0,0);
+  assert.equal(calls.guangyaDirectFolders.length,foldersBefore+2);
+  assert.equal(calls.guangyaDirectFiles.length,filesBefore+1);
   await browser.move('destination','目标',trail,true);
   assert.equal(calls.guangyaDirectFolders.at(-1).input.entryId,folder.id);
   assert.equal(calls.guangyaDirectFolders.at(-1).input.destinationId,'destination');

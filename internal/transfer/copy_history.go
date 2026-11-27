@@ -210,6 +210,13 @@ func (m *Manager) CopyGuangyaFolderToDirectory(ctx context.Context, row MoveBatc
 	return m.copyEntry(ctx, row, "guangya")
 }
 
+func (m *Manager) CopyGuangyaFileToDirectory(ctx context.Context, row MoveBatchEntry) (CloudEntry, error) {
+	if row.Folder {
+		return CloudEntry{}, errors.New("此入口仅支持光鸭单文件直接复制")
+	}
+	return m.copyEntry(ctx, row, "guangya")
+}
+
 func (m *Manager) copyEntry(ctx context.Context, row MoveBatchEntry, directKind string) (CloudEntry, error) {
 	if !validCopyInput(row) && !validPan123CopyInput(row) && !validGuangyaCopyInput(row) && !validLanzouCopyInput(row) {
 		return CloudEntry{}, errors.New("复制项目无效，请刷新")
@@ -233,7 +240,7 @@ func (m *Manager) copyEntry(ctx context.Context, row MoveBatchEntry, directKind 
 	}
 	if directGuangya && (!nativeGuangya || !validGuangyaCopyInput(row)) {
 		m.mu.Unlock()
-		return CloudEntry{}, errors.New("直接复制仅支持同一光鸭账号的文件夹")
+		return CloudEntry{}, errors.New("直接复制仅支持同一光鸭账号的项目")
 	}
 	if !(native123 && validPan123CopyInput(row) || nativeGuangya && validGuangyaCopyInput(row) || nativeLanzou && validLanzouCopyInput(row) ||
 		(a.Kind == "baidu" || a.Kind == "ctdav" || a.Kind == "webdav") && validCopyInput(row)) {
@@ -246,7 +253,7 @@ func (m *Manager) copyEntry(ctx context.Context, row MoveBatchEntry, directKind 
 		d.Receipt.OutputFolder = row.Input.Name
 	} else if native123 && !direct123 {
 		d.Receipt.OutputFolder = pan123CopyFolderPrefix + d.Receipt.ID
-	} else if nativeGuangya {
+	} else if nativeGuangya && !directGuangya {
 		d.Receipt.OutputFolder = guangyaCopyFolderPrefix + d.Receipt.ID
 	} else if nativeLanzou {
 		d.Receipt.OutputFolder = lanzouCopyFolderPrefix + d.Receipt.ID

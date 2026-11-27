@@ -37,9 +37,6 @@ func (m *Manager) validateNativeCopyBatch(ctx context.Context, client *http.Clie
 		}
 		seen[in.EntryID] = true
 		if direct {
-			if kind == "guangya" && !row.Folder {
-				return errors.New("光鸭批量直接复制仅支持文件夹")
-			}
 			if row.Folder && validateCloudFolderName(in.Name) != nil {
 				return fmt.Errorf("文件夹名称「%s」不支持直接复制", in.Name)
 			}

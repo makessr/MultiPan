@@ -76,14 +76,8 @@ func TestGuangyaMixedCopyBatchPreflight(t *testing.T) {
 				return quarkResponse(quarkData(map[string]any{"list": entries, "total": total}), nil), nil
 			})}
 			err := manager.validateNativeCopyBatch(context.Background(), client, rows, "guangya", direct)
-			if (err == nil) != (scenario == "complete" || scenario == "at-capacity" || scenario == "direct-folders") {
+			if (err == nil) != (scenario == "complete" || scenario == "at-capacity" || scenario == "direct-folders" || scenario == "direct-mixed") {
 				t.Fatalf("unexpected batch preflight result: %v", err)
-			}
-			if scenario == "direct-mixed" {
-				if len(reads) != 0 {
-					t.Fatal("unsupported mixed batch issued a request")
-				}
-				return
 			}
 			if len(manager.copies) != 0 || reads["first"] == 0 ||
 				(scenario == "over-capacity") != (reads["second"] == 0) ||

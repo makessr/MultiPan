@@ -181,6 +181,10 @@ func (s *DesktopService) CopyGuangyaFolderToDirectory(entry transfer.MoveBatchEn
 	return s.manager.CopyGuangyaFolderToDirectory(context.Background(), entry)
 }
 
+func (s *DesktopService) CopyGuangyaFileToDirectory(entry transfer.MoveBatchEntry) (transfer.CloudEntry, error) {
+	return s.manager.CopyGuangyaFileToDirectory(context.Background(), entry)
+}
+
 func (s *DesktopService) ValidateGuangyaDirectCopyBatch(entries []transfer.MoveBatchEntry) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
