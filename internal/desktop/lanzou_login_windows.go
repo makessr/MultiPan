@@ -30,6 +30,9 @@ func (s *DesktopService) LoginGuangya(id, name, folder string) (transfer.Account
 func (s *DesktopService) LoginBaidu(id, name, folder string) (transfer.Account, error) {
 	return s.loginCloud("baidu", id, name, folder)
 }
+func (s *DesktopService) LoginCtWeb(id, name, folder string) (transfer.Account, error) {
+	return s.loginCloud("ctweb", id, name, folder)
+}
 func (s *DesktopService) loginCloud(kind, id, name, folder string) (transfer.Account, error) {
 	if strings.TrimSpace(name) == "" {
 		return transfer.Account{}, errors.New("请先填写账号名称")
@@ -68,6 +71,9 @@ func (s *DesktopService) loginCloud(kind, id, name, folder string) (transfer.Acc
 	}
 	if kind == "pan123" {
 		arg = "--pan123-login"
+	}
+	if kind == "ctweb" {
+		arg = "--ctweb-login"
 	}
 	cmd := exec.CommandContext(ctx, exe, arg, profile)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -118,6 +124,10 @@ func (s *DesktopService) loginCloud(kind, id, name, folder string) (transfer.Acc
 		a.Kind = kind
 		a.Endpoint = transfer.Pan123API
 		e = transfer.Verify123Session(ctx, transfer.NewHTTPUploader().Client, a)
+	} else if kind == "ctweb" {
+		a.Kind = "ctweb"
+		a.Endpoint = transfer.CtWebAPI
+		result.DeviceID, e = transfer.VerifyCtWebSession(ctx, transfer.NewHTTPUploader().Client, a)
 	} else {
 		e = transfer.VerifyLanzouSession(ctx, transfer.NewHTTPUploader().Client, a)
 	}

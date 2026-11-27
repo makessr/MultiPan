@@ -107,6 +107,21 @@ func Test123CaptureHostBoundary(t *testing.T) {
 	}
 }
 
+func TestCtfileCapturePathBoundary(t *testing.T) {
+	for _, raw := range []string{"http://api.ctfile.com/home/file/browse/list", "https://api.ctfile.com.evil.example/home/file/browse/list", "https://api.ctfile.com/other/list", "https://api.ctfile.com/homex/list"} {
+		u, _ := url.Parse(raw)
+		if allowedTokenRequest(u, []string{"api.ctfile.com"}) {
+			t.Fatalf("untrusted 诚通 request accepted: %s", raw)
+		}
+	}
+	for _, raw := range []string{"https://api.ctfile.com/home/user/auth/login", "https://api.ctfile.com/home/file/browse/list"} {
+		u, _ := url.Parse(raw)
+		if !allowedTokenRequest(u, []string{"api.ctfile.com"}) {
+			t.Fatalf("official 诚通 request rejected: %s", raw)
+		}
+	}
+}
+
 func TestSessionCookieValidation(t *testing.T) {
 	for _, s := range []string{"", "PHPSESSID=abc", "notphpdisk_info=x", "phpdisk_info="} {
 		if validSession(s) {

@@ -48,7 +48,7 @@ const cloudSearchMaxDepth = 2
 
 func supportsCloudSearch(kind string) bool {
 	switch kind {
-	case "lanzou", "quark", "pan123", "baidu", "guangya", "ctdav", "webdav", "ctfile":
+	case "lanzou", "quark", "pan123", "baidu", "guangya", "ctdav", "webdav", "ctfile", "ctweb":
 		return true
 	}
 	return false

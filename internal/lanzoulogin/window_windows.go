@@ -124,6 +124,19 @@ func RunGuangya(profile string, onReady func(func(), Result)) (Result, error) {
 func RunBaidu(profile string, onReady func(func(), Result)) (Result, error) {
 	return runBrowser(profile, "https://pan.baidu.com/login", "https://pan.baidu.com/disk/main", "百度网盘", validBaiduSession, onReady)
 }
+// RunCtfile opens the 诚通 web client and returns its bearer token. The retired
+// OpenAPI login (HTTP 410) cannot be replaced by cookies: the web front-end
+// authenticates API requests with the token kept in sessionStorage.
+func RunCtfile(profile string, onReady func(func(), Result)) (Result, error) {
+	return runBrowser(profile, "https://my.ctfile.com/login", "", "诚通网盘", validCtfileSession, onReady, "api.ctfile.com")
+}
+func validCtfileSession(token string) bool {
+	token = strings.TrimSpace(token)
+	if len(token) < 24 || len(token) > 8192 {
+		return false
+	}
+	return !strings.ContainsAny(token, " \t\r\n")
+}
 func validBaiduSession(header string) bool {
 	req := http.Request{Header: http.Header{"Cookie": {header}}}
 	for _, c := range req.Cookies() {
@@ -434,7 +447,20 @@ func allowedTokenRequest(u *url.URL, hosts []string) bool {
 		return false
 	}
 	for _, host := range hosts {
-		if u.Host == host && (u.Scheme == "https" || (u.Scheme == "http" && strings.HasPrefix(host, "127.0.0.1:"))) && (strings.Contains(u.Path, "/api/") || (host == "api.guangyapan.com" && strings.HasPrefix(u.Path, "/userres/"))) {
+		if u.Host != host {
+			continue
+		}
+		if u.Scheme != "https" && !(u.Scheme == "http" && strings.HasPrefix(host, "127.0.0.1:")) {
+			continue
+		}
+		if strings.Contains(u.Path, "/api/") {
+			return true
+		}
+		if host == "api.guangyapan.com" && strings.HasPrefix(u.Path, "/userres/") {
+			return true
+		}
+		// The 诚通 web client keeps every endpoint under /home/.
+		if host == "api.ctfile.com" && strings.HasPrefix(u.Path, "/home/") {
 			return true
 		}
 	}

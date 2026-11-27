@@ -26,6 +26,9 @@ func (s *DesktopService) LoginGuangya(string, string, string) (transfer.Account,
 func (s *DesktopService) LoginBaidu(string, string, string) (transfer.Account, error) {
 	return transfer.Account{}, errManualLogin
 }
+func (s *DesktopService) LoginCtWeb(string, string, string) (transfer.Account, error) {
+	return transfer.Account{}, errManualLogin
+}
 func (s *DesktopService) CancelLanzouLogin() {}
 
 type applicationUpdates struct{}

@@ -169,6 +169,9 @@ func (m *Manager) ListFolders(ctx context.Context, id, parent string) (FolderPag
 	if account.Kind == "ctfile" {
 		return ListCtFolders(ctx, NewHTTPUploader().Client, account, parent)
 	}
+	if account.Kind == "ctweb" {
+		return ListCtWebFolders(ctx, NewHTTPUploader().Client, account, parent)
+	}
 	if account.Kind != "lanzou" {
 		return FolderPage{}, errors.New("此目录浏览器暂时支持蓝奏云")
 	}
@@ -189,7 +192,7 @@ func (m *Manager) SetDefaultFolder(id, folder, display string) error {
 		if a.ID != id {
 			continue
 		}
-		if a.Kind != "lanzou" && a.Kind != "quark" && a.Kind != "pan123" && a.Kind != "baidu" && a.Kind != "ctfile" && a.Kind != "ctdav" && a.Kind != "webdav" && a.Kind != "guangya" {
+		if a.Kind != "lanzou" && a.Kind != "quark" && a.Kind != "pan123" && a.Kind != "baidu" && a.Kind != "ctfile" && a.Kind != "ctdav" && a.Kind != "webdav" && a.Kind != "guangya" && a.Kind != "ctweb" {
 			return errors.New("此操作暂时支持蓝奏云")
 		}
 		if (a.Kind == "lanzou" && !validFolderID(folder)) || (a.Kind == "quark" && !validQuarkFolder(folder)) {
@@ -210,6 +213,9 @@ func (m *Manager) SetDefaultFolder(id, folder, display string) error {
 		}
 		if a.Kind == "baidu" && !validBaiduPath(folder) {
 			return errors.New("百度目标目录路径无效")
+		}
+		if a.Kind == "ctweb" && !validCtWebFolder(folder) {
+			return errors.New("诚通目标目录无效")
 		}
 		a.Folder = folder
 		a.FolderDisplay = display

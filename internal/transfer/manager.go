@@ -172,7 +172,7 @@ func validateAccount(a Account) error {
 	if strings.TrimSpace(a.Name) == "" {
 		return errors.New("请填写账号名称")
 	}
-	if a.Kind != "webdav" && a.Kind != "lanzou" && a.Kind != "quark" && a.Kind != "pan123" && a.Kind != "baidu" && a.Kind != "ctfile" && a.Kind != "ctdav" && a.Kind != "guangya" {
+	if a.Kind != "webdav" && a.Kind != "lanzou" && a.Kind != "quark" && a.Kind != "pan123" && a.Kind != "baidu" && a.Kind != "ctfile" && a.Kind != "ctdav" && a.Kind != "guangya" && a.Kind != "ctweb" {
 		return errors.New("暂不支持该网盘")
 	}
 	if a.Secret == "" {
@@ -180,6 +180,17 @@ func validateAccount(a Account) error {
 	}
 	if strings.ContainsAny(a.Secret, "\r\n") {
 		return errors.New("凭据不能包含换行")
+	}
+	if a.Kind == "ctweb" {
+		if len(strings.TrimSpace(a.Secret)) < 24 {
+			return errors.New("诚通网页版登录令牌无效，请重新登录")
+		}
+		if a.Endpoint != "" && a.Endpoint != CtWebAPI {
+			return errors.New("诚通网页版接口地址无效")
+		}
+		if _, err := strconv.ParseInt(a.Folder, 10, 64); err != nil && a.Folder != "" && !strings.HasPrefix(a.Folder, "d") {
+			return errors.New("诚通目录 ID 须为数字或以 d 开头，根目录留空")
+		}
 	}
 	if a.Kind == "webdav" || a.Kind == "ctdav" {
 		u, err := url.Parse(a.Endpoint)

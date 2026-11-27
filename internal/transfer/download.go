@@ -79,7 +79,7 @@ func (m *Manager) downloadFile(ctx context.Context, in DownloadInput, destinatio
 
 func DownloadAccountFile(ctx context.Context, client *http.Client, a Account, in DownloadInput, destination string, progress func(DownloadProgress), originals ...UploadFingerprint) (DownloadResult, error) {
 	fail := func(message string) (DownloadResult, error) { return DownloadResult{}, errors.New(message) }
-	if a.Kind != "ctdav" && a.Kind != "webdav" && a.Kind != "pan123" && a.Kind != "guangya" && a.Kind != "quark" && a.Kind != "baidu" && a.Kind != "lanzou" {
+	if a.Kind != "ctdav" && a.Kind != "webdav" && a.Kind != "pan123" && a.Kind != "guangya" && a.Kind != "quark" && a.Kind != "baidu" && a.Kind != "lanzou" && a.Kind != "ctweb" {
 		return fail("此网盘暂未接入文件下载")
 	}
 	if !filepath.IsAbs(destination) || SuggestedDownloadName(filepath.Base(destination)) != filepath.Base(destination) {
@@ -106,6 +106,8 @@ func DownloadAccountFile(ctx context.Context, client *http.Client, a Account, in
 		source, resp, expectedMD5, e = openQuarkDownload(ctx, &bounded, a, in)
 	} else if a.Kind == "guangya" {
 		source, resp, expectedMD5, e = openGuangyaDownload(ctx, &bounded, a, in)
+	} else if a.Kind == "ctweb" {
+		source, resp, expectedMD5, e = openCtWebDownload(ctx, &bounded, a, in)
 	} else {
 		source, resp, e = openDAVDownload(ctx, &bounded, a, in)
 	}

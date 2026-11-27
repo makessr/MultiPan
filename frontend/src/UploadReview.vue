@@ -17,7 +17,7 @@ const unknown=computed(()=>props.report?.items?.filter(r=>r.status==='unknown').
 function toggle(row:{fileIndex:number;targetIndex:number},include:boolean){if(props.checking||props.submitting)return;const id=key(row);excluded.value=include?excluded.value.filter(x=>x!==id):[...new Set([...excluded.value,id])]}
 function submit(){if(!props.report?.items||props.checking||props.submitting||!count.value)return;emit('submit',props.report.items.filter(r=>excluded.value.includes(key(r))).map(({fileIndex,targetIndex})=>({fileIndex,targetIndex})))}
 onMounted(()=>nextTick(()=>dialog.value?.focus()))
-const cloudName=(kind:string)=>(({lanzou:'蓝奏云',quark:'夸克网盘',pan123:'123 云盘',baidu:'百度网盘',ctdav:'诚通网盘',webdav:'WebDAV',guangya:'光鸭云盘',ctfile:'诚通 OpenAPI'} as Record<string,string>)[kind]??kind)
+const cloudName=(kind:string)=>(({lanzou:'蓝奏云',quark:'夸克网盘',pan123:'123 云盘',baidu:'百度网盘',ctdav:'诚通网盘',webdav:'WebDAV',guangya:'光鸭云盘',ctfile:'诚通 OpenAPI',ctweb:'诚通网盘（网页版）'} as Record<string,string>)[kind]??kind)
 </script>
 <template>
  <div class="modal-backdrop"><section ref="dialog" tabindex="-1" class="operation-dialog upload-plan-dialog" role="dialog" aria-modal="true" aria-labelledby="upload-review-title" @keydown.tab="trapDialogFocus" @keydown.esc.prevent="!submitting&&emit('cancel')">

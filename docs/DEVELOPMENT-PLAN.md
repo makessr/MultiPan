@@ -1,5 +1,16 @@
 # MultiPan 后续开发计划
 
+## 诚通网盘（网页版）接入（2026-11-27）
+
+诚通官方下线了「手机号 + 短信」和「邮箱 + 密码」换 `session` 的开放接口（返回 HTTP 410），程序里的短信与密码登录已经停用，只保留官方密钥面板和 Session 输入。用户要求按蓝奏的方式模拟网页端内部接口，因此新增独立账号类型 `ctweb`。
+
+- 登录：内嵌 WebView2 打开 `https://my.ctfile.com/login`，用户正常登录后从请求头读取 `Authorization: Bearer <token>`（与蓝奏、夸克共用的登录脚手架 `internal/lanzoulogin`，新增 `RunCtfile`）。密码登录自身需要 altcha 人机验证，所以不在 Go 里直连，只能借网页会话。
+- 接口：`https://api.ctfile.com` 的 `/home/...`，全部 POST JSON。列目录 `/home/file/browse/list`，建目录 `/home/file/manage/create-folder`，改名 `/home/file/manage/rename`，删除 `/home/file/manage/delete`，下载先 `/home/file/browse/fetch-url` 再回落 `stream`，上传先 `/home/file/manage/upload` 拿 `uploadUrl` 再 `PUT` 原始字节（`hash`/`path`/`contentlength` 查询参数，校验返回 `upload complete` 与字节数）。
+- 工作空间：网页端请求普遍带 `workspace_id`。`internal/transfer/ctweb.go` 先不带该字段请求，只有报错提到工作空间时才解析 `/home/workspace/manage/list` 里 `is_default` 的那一项并重试。
+- 上传校验：`checksum` 是文件前 1 MB 的 MD5，与网页端一致；上传完成必须看到 `code==200`、`id>0` 且 `size` 相符，否则报「诚通上传未确认完成」。
+- 范围：`ctweb` 目前接列目录、上传、下载、新建文件夹、改名与账号检查，不参与分享、回收站和跨网盘复制；根目录标识沿用 `d0`。
+- 验证：`internal/transfer/ctweb_test.go` 覆盖目录映射、令牌失效提示、账号名读取、建目录请求体、上传确认与未确认失败、下载回落到 `stream`、目录标识校验；前端类型检查与完整门禁另行记录。真实账号验收需要用户在网页端登录后检查目录、上传与下载。
+
 ## 相近目录查找覆盖中间层候选与多余层级（2026-11-27）
 
 用户反馈 U02 的同名/近似目录「有时候匹配不到」。原实现（`frontend/src/uploadFolderMatch.ts`）只在每一级选出最高分候选：某一级出现两个及以上同级候选时直接返回 `ambiguous`，界面只显示「有多个相近路径，请手动选择」而没有可点的路径；名称差异超过一处编辑、数字前导 0 不同、或目标把目录多套了一层时都判为 `missing`。
