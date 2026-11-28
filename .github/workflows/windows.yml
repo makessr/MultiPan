@@ -23,6 +23,10 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    # 配置签名证书后，构建产物会带 Authenticode 签名与时间戳；未配置时保持未签名。
+    env:
+      MULTIPAN_SIGN_PFX_BASE64: ${{ secrets.MULTIPAN_SIGN_PFX_BASE64 }}
+      MULTIPAN_SIGN_PFX_PASSWORD: ${{ secrets.MULTIPAN_SIGN_PFX_PASSWORD }}
     defaults:
       run:
         shell: pwsh
@@ -84,6 +88,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'WiX UI extension installation failed' }
           ./scripts/package-installer.ps1 -Machine -WixPath $wix -ApplicationPath bin/multipan.exe -OutputPath bin/MultiPan-all-users.msi
           ./scripts/check-machine-installer.ps1 -Installer bin/MultiPan-all-users.msi -ApplicationPath bin/multipan.exe -Architecture '${{ matrix.arch }}' -Extract
+      - name: 签名发行文件
+        if: env.MULTIPAN_SIGN_PFX_BASE64 != ''
+        run: |
+          if (!$env:MULTIPAN_SIGN_PFX_BASE64) { throw '签名证书内容为空' }
+          ./scripts/sign-windows-bundle.ps1 -Path bin/multipan.exe, bin/MultiPan-setup.exe, bin/MultiPan-all-users.msi `
+            -PfxBase64 $env:MULTIPAN_SIGN_PFX_BASE64 -PfxPassword $env:MULTIPAN_SIGN_PFX_PASSWORD
+      - name: 记录未签名产物
+        if: env.MULTIPAN_SIGN_PFX_BASE64 == ''
+        run: |
+          "未配置 MULTIPAN_SIGN_PFX_BASE64，本次 ${{ matrix.arch }} 产物未做 Authenticode 签名。" >> $env:GITHUB_STEP_SUMMARY
       - name: 上传便携版与安装包
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

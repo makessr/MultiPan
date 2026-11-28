@@ -22,8 +22,12 @@
 ## 待确认的服务商能力
 
 - **夸克**已有链接的提取码和期限修改需要可确认的写入接口。官方帮助列出创建时的设置项和历史分享状态筛选。[夸克使用手册](https://www.quark.cn/documents/help/file-share)
-  已核对的官方 CloudDrive 技能文档只列出创建分享、分享详情、分享内搜索和已转存分享的更新列表，没有修改已有分享设置的命令，客户端内的写入请求仍需抓取确认。[夸克 CloudDrive 分享文档](https://github.com/quark-clouddrive/quarkclouddrive_offical/blob/main/skills/quarkclouddrive/references/file-share.md)
+  已核对的官方 CloudDrive 技能文档只列出创建分享、分享详情、分享内搜索和已转存分享的更新列表，没有修改已有分享设置的命令。[夸克 CloudDrive 分享文档](https://github.com/quark-clouddrive/quarkclouddrive_offical/blob/main/skills/quarkclouddrive/references/file-share.md)
+  2026-11-28 又按公开源码做了一轮穷举：`pan.quark.cn` 的 `/`、`/list`、`/drive`、`/s/` 在未登录时都返回同一张营销页，取不到网盘 bundle；第三方封装（OpenList `quark_uc`、QuarkPan、wlor0623/quark-api 开放平台文档）只有创建、分享详情、`share/password`（换链接口令，入参仅 `share_id`）、撤销这几类，`share/update|edit|modify` 零命中。结论不变：写入请求只能靠真实账号抓包确认。
 - **123 云盘**已有链接的提取码和已发布付费内容改价需要可确认的写入接口。当前网页更新请求包含主题、期限、下载权限、流量，以及适用的普通分享游客单价。[123 网页分享设置实现](https://statics.123pan.com/123pan-resources/prod/dist/src_pages_ShareList_ShareList_tsx.44c550a8f80136723960.1794308315.chunk.js)
-  核对该页面脚本后，其中只有列表与设置表单的界面逻辑，提交走的公共请求模块不在该文件内，实际写入路径需在同一账号内抓取确认。
+  2026-11-28 在网页端脚本里定位到分享更新与撤销的具体请求，与现有实现一致：更新为 `PUT /restful/goapi/v1/share/update`，请求体含 `shareId`、`expiration`、`shareName`、`trafficSwitch`、`isTraffic`、`isTrafficLimit`、`trafficLimitNumber`、`trafficLimitNumberUnit`，以及普通分享可选的 `noLoginStdAmount`；撤销为 `POST /share/delete`，请求体含 `driveId`、`shareInfoList[{shareId}]`、`isPayShare`、`event: "shareCancel"`、`operatePlace`。编辑弹窗表单里没有提取码字段，因此**改提取码**仍无依据，待真实账号抓包。
 - **百度网盘**个人版已有链接的提取码修改需要可确认的写入接口。网页实现中可核对期限修改和链接激活。[百度个人版网页实现](https://nd-static.bdstatic.com/m-static/v20-main/home/js/home.ab023ea6.js)
+  2026-11-28 按分享管理页面的脚本穷举 `/share/*`：只确认到撤销 `POST /share/cancel`（`shareid_list`）与列表 `GET /share/record`，另有 `POST /share/mexpire`（form-urlencoded）仅被定义、无调用点，参数未知，不能作为修改期限或提取码的依据。
 - **蓝奏云**完整的已发布分享列表及独立撤销需要可确认的接口。现有目录入口展示文件或文件夹外链。[蓝奏帮助](https://www.lanzou.com/q/zh/wt.htm)
+
+完整取证记录（含每条命中的文件位置与失败记录）见 `docs/drafts/share-write-apis.md`，该目录不随仓库发布。要解锁剩余能力，需要在该网盘网页端真实操作一次「改提取码 / 改期限 / 改价」，再把请求头与请求体发来。
