@@ -108,6 +108,62 @@ func getCookies(manager *edge.ICoreWebView2CookieManager, uri string, handler *c
 	return nil
 }
 
+// scriptCallback receives the JSON result of ExecuteScript. WebView2 only
+// exposes the handler through an unexported type, so the vtable is built here.
+type scriptCallback struct {
+	vtbl *[4]uintptr
+	done func(uintptr, *uint16)
+}
+
+var scriptCallbackVtbl = [4]uintptr{
+	syscall.NewCallback(func(this *scriptCallback, _ *windows.GUID, out *unsafe.Pointer) uintptr {
+		if out == nil {
+			return 0x80004003
+		}
+		*out = unsafe.Pointer(this)
+		return 0
+	}),
+	syscall.NewCallback(func(*scriptCallback) uintptr { return 1 }),
+	syscall.NewCallback(func(*scriptCallback) uintptr { return 1 }),
+	syscall.NewCallback(func(this *scriptCallback, code uintptr, result *uint16) uintptr {
+		this.done(code, result)
+		return 0
+	}),
+}
+
+// ICoreWebView2::ExecuteScript is the 30th entry of the interface vtable
+// (IUnknown's three methods plus twenty-six before it).
+const executeScriptSlot = 29
+
+func executeScript(view *edge.ICoreWebView2, script string, handler *scriptCallback) error {
+	text, e := windows.UTF16PtrFromString(script)
+	if e != nil {
+		return e
+	}
+	table := *(*[32]uintptr)(*(*unsafe.Pointer)(unsafe.Pointer(view)))
+	hr, _, _ := syscall.SyscallN(table[executeScriptSlot], uintptr(unsafe.Pointer(view)), uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(handler)))
+	if hr != 0 {
+		return syscall.Errno(hr)
+	}
+	return nil
+}
+
+// storageToken unwraps the double-encoded string ExecuteScript returns and
+// reads the token the page keeps in sessionStorage.
+func storageToken(raw string) string {
+	var inner string
+	if e := json.Unmarshal([]byte(raw), &inner); e != nil {
+		return ""
+	}
+	var data struct {
+		Token string `json:"token"`
+	}
+	if e := json.Unmarshal([]byte(inner), &data); e != nil {
+		return ""
+	}
+	return strings.TrimSpace(data.Token)
+}
+
 // Run is used only by the isolated --lanzou-login child process.
 func Run(profile string, onReady func(func(), Result)) (Result, error) {
 	return runWithReady(profile, LoginURL, CookieURI, onReady)
@@ -128,8 +184,13 @@ func RunBaidu(profile string, onReady func(func(), Result)) (Result, error) {
 // OpenAPI login (HTTP 410) cannot be replaced by cookies: the web front-end
 // authenticates API requests with the token kept in sessionStorage.
 func RunCtfile(profile string, onReady func(func(), Result)) (Result, error) {
-	return runBrowser(profile, "https://my.ctfile.com/login", "", "诚通网盘", validCtfileSession, onReady, "api.ctfile.com")
+	return runBrowserWithStorage(profile, "https://my.ctfile.com/login", "", "诚通网盘", validCtfileSession, onReady, ctfileStorageScript, "api.ctfile.com")
 }
+
+// ctfileStorageScript reports the session token the web client keeps for API
+// calls. Re-signing in with a cached session does not always issue a request
+// carrying the bearer token, so the window also watches the page storage.
+const ctfileStorageScript = `(function(){try{var s=window.sessionStorage||{},l=window.localStorage||{};var t=s.getItem('token')||s.getItem('access_token')||l.getItem('token')||l.getItem('access_token')||'';return JSON.stringify({token:t});}catch(e){return JSON.stringify({token:''});}})()`
 func validCtfileSession(token string) bool {
 	token = strings.TrimSpace(token)
 	if len(token) < 24 || len(token) > 8192 {
@@ -153,6 +214,14 @@ func runWithReady(profile, startURL, cookieURI string, onReady func(func(), Resu
 	return runBrowser(profile, startURL, cookieURI, "蓝奏云", validSession, onReady)
 }
 func runBrowser(profile, startURL, cookieURI, cloudName string, valid func(string) bool, onReady func(func(), Result), tokenHosts ...string) (Result, error) {
+	return runBrowserWithStorage(profile, startURL, cookieURI, cloudName, valid, onReady, "", tokenHosts...)
+}
+
+// runBrowserWithStorage behaves like runBrowser and additionally polls the page
+// storage for a token. Some web clients only talk to their API after restoring
+// a cached session (or through a service worker), so no request header ever
+// reaches WebResourceRequested and the window would wait forever.
+func runBrowserWithStorage(profile, startURL, cookieURI, cloudName string, valid func(string) bool, onReady func(func(), Result), storageScript string, tokenHosts ...string) (Result, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	// S_FALSE means COM was already initialized in this apartment (e.g. by Wails).
@@ -177,11 +246,27 @@ func runBrowser(profile, startURL, cookieURI, cloudName string, valid func(strin
 		}
 	}
 	var handler *cookieCallback
+	var scriptHandler *scriptCallback
+	var scriptPending bool
 	finish := func() {
 		if !finished {
 			finished = true
 			postMessage.Call(hwnd, 0x0010, 0, 0)
 		}
+	}
+	if storageScript != "" {
+		scriptHandler = &scriptCallback{vtbl: &scriptCallbackVtbl, done: func(code uintptr, page *uint16) {
+			scriptPending = false
+			if finished || code != 0 || page == nil {
+				return
+			}
+			token := storageToken(windows.UTF16PtrToString(page))
+			if token == "" || !valid(token) {
+				return
+			}
+			result = Result{Cookie: token, UserAgent: UserAgent}
+			finish()
+		}}
 	}
 	if len(tokenHosts) > 0 {
 		browser.WebResourceRequestedCallback = func(request *edge.ICoreWebView2WebResourceRequest, _ *edge.ICoreWebView2WebResourceRequestedEventArgs) {
@@ -267,6 +352,23 @@ func runBrowser(profile, startURL, cookieURI, cloudName string, valid func(strin
 			pending = false
 		}
 	}
+	pollStorage := func() {
+		if storageScript == "" || !ready || finished || scriptPending || !pageLoaded {
+			return
+		}
+		controller := browser.GetController()
+		if controller == nil {
+			return
+		}
+		view, e := controller.GetCoreWebView2()
+		if e != nil || view == nil {
+			return
+		}
+		scriptPending = true
+		if e := executeScript(view, storageScript, scriptHandler); e != nil {
+			scriptPending = false
+		}
+	}
 	proc := syscall.NewCallback(func(h uintptr, msg uint32, w, l uintptr) uintptr {
 		switch msg {
 		case 0x0005:
@@ -280,6 +382,7 @@ func runBrowser(profile, startURL, cookieURI, cloudName string, valid func(strin
 				setStatus("页面加载较慢；可点击菜单「刷新页面」或按 F12 查看开发者工具。")
 			}
 			poll()
+			pollStorage()
 			return 0
 		case 0x0111:
 			if ready {

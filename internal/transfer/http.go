@@ -35,7 +35,7 @@ type progressReader struct {
 func (p *progressReader) Read(b []byte) (int, error) {
 	n, e := p.r.Read(b)
 	p.total += int64(n)
-	if time.Since(p.last) > 150*time.Millisecond || e == io.EOF {
+	if p.fn != nil && (time.Since(p.last) > 150*time.Millisecond || e == io.EOF) {
 		p.fn(p.total)
 		p.last = time.Now()
 	}

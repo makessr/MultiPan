@@ -19,7 +19,8 @@ const paths:Record<string,string>={
  move:'M4 8h16m-4-4 4 4-4 4 M20 16H4m4-4-4 4 4 4',
  edit:'m4 16 11-11 4 4L8 20H4z M13 7l4 4',
  share:'M9 12 16 6M9 12l7 6 M7 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6 M19 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4 M19 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4',
- settings:'M4 7h16M4 17h16 M8 4v6M16 14v6'
+ settings:'M4 7h16M4 17h16 M8 4v6M16 14v6',
+ trash:'M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6M14 11v6'
 }
 </script>
 <template><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><template v-if="name==='more'"><circle v-for="x in [5,12,19]" :key="x" :cx="x" cy="12" r="1.8" fill="currentColor" stroke="none"/></template><path v-else :d="paths[name]??paths.file"/></svg></template>

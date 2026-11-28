@@ -26,7 +26,7 @@ type RenameInput struct {
 
 func RenameAccountEntry(ctx context.Context, client *http.Client, a Account, in RenameInput) (CloudEntry, error) {
 	switch a.Kind {
-	case "lanzou", "quark", "pan123", "baidu", "guangya", "ctdav", "webdav":
+	case "lanzou", "quark", "pan123", "baidu", "guangya", "ctdav", "webdav", "ctweb":
 	default:
 		return CloudEntry{}, errors.New("此网盘暂不支持重命名")
 	}

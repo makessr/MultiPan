@@ -49,6 +49,23 @@ type ctWebReply struct {
 	Data       json.RawMessage `json:"data"`
 }
 
+// ctWebFlag decodes the loose booleans the web API uses: it sends true/false in
+// some replies and 0/1 in others, so both shapes must map to the same value.
+type ctWebFlag bool
+
+func (f *ctWebFlag) UnmarshalJSON(raw []byte) error {
+	text := strings.TrimSpace(strings.Trim(strings.TrimSpace(string(raw)), `"`))
+	switch text {
+	case "1", "true", "yes":
+		*f = true
+	case "", "0", "false", "no", "null":
+		*f = false
+	default:
+		return fmt.Errorf("unknown flag %q", text)
+	}
+	return nil
+}
+
 func ctWebFailure(reply ctWebReply) error {
 	if reply.Code == 401 || reply.Code == 403 {
 		return errors.New("诚通网页版登录已失效，请重新登录")
@@ -124,29 +141,48 @@ func ctWebMentionsWorkspace(err error) bool {
 	return strings.Contains(text, "workspace") || strings.Contains(text, "工作空间") || strings.Contains(text, "空间")
 }
 
-// postAdaptive retries without the workspace id first, then walks the
-// workspace candidates the account may accept. Personal accounts differ: some
-// ignore the field, some want the default space id, some accept 0.
+// postAdaptive keeps the workspace id the web client always sends. Personal
+// accounts differ: some ignore the field, some want the default space id and
+// some accept 0, so every request walks the same short ladder and remembers the
+// value that worked.
 func (c *ctWebClient) postAdaptive(ctx context.Context, path string, payload map[string]any, out any) error {
-	e := c.post(ctx, path, payload, out)
-	if !ctWebMentionsWorkspace(e) {
-		return e
+	var last error
+	var spaceErr error
+	tried := map[int]bool{}
+	try := func(ws int) bool {
+		if tried[ws] {
+			return false
+		}
+		tried[ws] = true
+		payload["workspace_id"] = ws
+		if e := c.post(ctx, path, payload, out); e == nil {
+			if ws > 0 {
+				c.ws = ws
+			}
+			return true
+		} else {
+			last = e
+		}
+		return false
 	}
-	// 0 means the current space in the web client; many accounts only accept it.
-	payload["workspace_id"] = 0
-	if e = c.post(ctx, path, payload, out); e == nil {
+	if try(c.ws) || try(0) {
 		return nil
 	}
-	if !ctWebMentionsWorkspace(e) {
-		return e
+	ws, spaceErr := c.workspace(ctx)
+	if spaceErr == nil && ws > 0 && try(ws) {
+		return nil
 	}
-	if ws, _ := c.workspace(ctx); ws > 0 {
-		payload["workspace_id"] = ws
-		if e = c.post(ctx, path, payload, out); e == nil {
-			return nil
-		}
+	// Last resort: some endpoints reject the field outright.
+	delete(payload, "workspace_id")
+	if e := c.post(ctx, path, payload, out); e == nil {
+		return nil
+	} else {
+		last = e
 	}
-	return e
+	if spaceErr != nil {
+		return fmt.Errorf("%v；%v", spaceErr, last)
+	}
+	return last
 }
 
 // workspace resolves the default workspace id. The web client always sends it;
@@ -335,34 +371,8 @@ func (c *ctWebClient) list(ctx context.Context, parent string) (FilePage, error)
 	const pageSize = 200
 	for hop := 0; hop < 50; hop++ {
 		payload := map[string]any{"folder_id": parent, "start": start, "pagesize": pageSize}
-		if c.ws > 0 {
-			payload["workspace_id"] = c.ws
-		}
 		var reply ctWebList
-		e := c.post(ctx, "/home/file/browse/list", payload, &reply)
-		if ctWebMentionsWorkspace(e) {
-			// 0 is the web client's "current space" (我的空间 / 默认共享空间), so
-			// try it before asking the server which space to use.
-			var wsErr error
-			payload["workspace_id"] = 0
-			e = c.post(ctx, "/home/file/browse/list", payload, &reply)
-			if ctWebMentionsWorkspace(e) {
-				if c.ws == 0 {
-					c.ws, wsErr = c.workspace(ctx)
-				}
-				if c.ws > 0 {
-					payload["workspace_id"] = c.ws
-					e = c.post(ctx, "/home/file/browse/list", payload, &reply)
-				}
-			}
-			if ctWebMentionsWorkspace(e) {
-				if wsErr != nil {
-					return page, fmt.Errorf("%v；%v", wsErr, e)
-				}
-				return page, e
-			}
-		}
-		if e != nil {
+		if e := c.postAdaptive(ctx, "/home/file/browse/list", payload, &reply); e != nil {
 			return page, e
 		}
 		results, total := reply.Data.Results, reply.Data.TotalNum
@@ -408,6 +418,29 @@ func validCtWebFolder(s string) bool {
 		return false
 	}
 	for _, r := range body {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// validCtWebEntryID accepts the "d123" folder ids and the plain numeric file ids
+// the web client uses.
+func validCtWebEntryID(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	// The web listing returns folders as "d<digits>" and files as
+	// "f<digits>"; both are accepted here, and a bare number stays valid.
+	if s[0] == 'd' || s[0] == 'f' {
+		s = s[1:]
+	}
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
 		if r < '0' || r > '9' {
 			return false
 		}
@@ -520,21 +553,25 @@ func ctWebRename(ctx context.Context, client *http.Client, a Account, id, name s
 		return errors.New("名称无效")
 	}
 	c := newCtWebClient(client, a)
-	payload := map[string]any{"id": id, "name": name, "is_rename": 1}
+	payload := map[string]any{"id": ctWebIDParam(id), "name": name, "is_rename": 1}
 	return c.postAdaptive(ctx, "/home/file/manage/rename", payload, nil)
 }
 
 func ctWebDelete(ctx context.Context, client *http.Client, a Account, id string) error {
 	c := newCtWebClient(client, a)
-	payload := map[string]any{"ids": []string{id}, "paths": "", "file_ids": []string{id}}
+	// The web client joins the selected fids into one comma separated value.
+	payload := map[string]any{"ids": strings.TrimSpace(id), "force": 0}
 	return c.postAdaptive(ctx, "/home/file/manage/delete", payload, nil)
 }
 
 // ctWebDownloadURL asks the web API for a temporary direct link.
-func ctWebDownloadURL(ctx context.Context, client *http.Client, a Account, id string) (string, error) {
+func ctWebDownloadURL(ctx context.Context, client *http.Client, a Account, parent, id string) (string, error) {
 	c := newCtWebClient(client, a)
 	var raw json.RawMessage
-	payload := map[string]any{"file_id": id, "carrier": 0}
+	payload := map[string]any{"file_id": ctWebIDParam(id), "carrier": 0}
+	if strings.TrimSpace(parent) != "" {
+		payload["folder_id"] = strings.TrimSpace(parent)
+	}
 	e := c.postAdaptive(ctx, "/home/file/browse/fetch-url", payload, &raw)
 	if e != nil {
 		// The web client falls back to the streaming endpoint; try it before
@@ -606,7 +643,7 @@ func openCtWebDownload(ctx context.Context, client *http.Client, a Account, in D
 	if count != 1 {
 		return CloudEntry{}, nil, "", errors.New("诚通文件已变化、不在当前目录或为文件夹，请刷新后下载")
 	}
-	address, e := ctWebDownloadURL(ctx, client, a, source.ID)
+	address, e := ctWebDownloadURL(ctx, client, a, in.ParentID, source.ID)
 	if e != nil {
 		return CloudEntry{}, nil, "", e
 	}
@@ -648,22 +685,23 @@ func (u *HTTPUploader) ctweb(ctx context.Context, a Account, f File, folder stri
 			UploadURL   string `json:"uploadUrl"`
 			UploadURL2  string `json:"upload_url"`
 			FileName    string `json:"file_name"`
-			Exists      bool   `json:"exists"`
-			Instant     bool   `json:"instant_upload"`
+			Exists      ctWebFlag `json:"exists"`
+			Instant     ctWebFlag `json:"instant_upload"`
 			UploadHash  string `json:"upload_session_hash"`
 			FileNameAlt string `json:"filename"`
 		} `json:"data"`
-		UploadURL  string `json:"uploadUrl"`
-		Exists     bool   `json:"exists"`
-		Instant    bool   `json:"instant_upload"`
-		FileName   string `json:"file_name"`
-		FileHash   string `json:"upload_session_hash"`
-		UploadHash string `json:"hash"`
+		UploadURL  string    `json:"uploadUrl"`
+		Exists     ctWebFlag `json:"exists"`
+		Instant    ctWebFlag `json:"instant_upload"`
+		FileName   string    `json:"file_name"`
+		FileHash   string    `json:"upload_session_hash"`
+		UploadHash string    `json:"hash"`
 	}
 	payload := map[string]any{"folder_id": folder, "path": f.Name, "size": f.Size, "checksum": hash, "carrier": 0}
 	if e := c.postAdaptive(ctx, "/home/file/manage/upload", payload, &init); e != nil {
 		return e
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG upload init ok: ws=%d url=%q name=%q\n", c.ws, init.Data.UploadURL, init.Data.FileName)
 	address := strings.TrimSpace(init.Data.UploadURL)
 	if address == "" {
 		address = strings.TrimSpace(init.Data.UploadURL2)
@@ -693,7 +731,7 @@ func (u *HTTPUploader) ctweb(ctx context.Context, a Account, f File, folder stri
 		session = strings.TrimSpace(init.FileHash)
 	}
 	if session == "" {
-		session = hash
+		session = ctWebSessionHash(hash, f.Size)
 	}
 	target, e := ctWebUploadTarget(address, session, name, f.Size)
 	if e != nil {
@@ -748,6 +786,27 @@ func ctWebUploadTarget(address, session, name string, size int64) (string, error
 	query.Set("contentlength", strconv.FormatInt(size, 10))
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
+}
+
+// ctWebIDParam keeps numeric ids numeric: the web client sends its fid as a
+// JSON number and some endpoints reject the same value quoted.
+func ctWebIDParam(id string) any {
+	text := strings.TrimSpace(id)
+	if text == "" {
+		return ""
+	}
+	if n, e := strconv.ParseInt(text, 10, 64); e == nil {
+		return n
+	}
+	return text
+}
+
+// ctWebSessionHash matches the web client's upload session id: the MD5 of the
+// file checksum, its size and one transfer id, joined with NUL bytes. The
+// transfer id keeps two uploads of the same file in separate sessions.
+func ctWebSessionHash(checksum string, size int64) string {
+	sum := md5.Sum([]byte(checksum + "\x00" + strconv.FormatInt(size, 10) + "\x00" + newID()))
+	return hex.EncodeToString(sum[:])
 }
 
 // ctWebHeadChecksum matches the web client: the MD5 of the first megabyte.

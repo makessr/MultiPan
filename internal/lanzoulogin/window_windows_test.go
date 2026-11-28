@@ -122,6 +122,26 @@ func TestCtfileCapturePathBoundary(t *testing.T) {
 	}
 }
 
+func TestStorageTokenUnwrapsScriptResult(t *testing.T) {
+	quoted, e := json.Marshal(`{"token":"abcdefghijklmnopqrstuvwx"}`)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if got := storageToken(string(quoted)); got != "abcdefghijklmnopqrstuvwx" {
+		t.Fatalf("storageToken(%s) = %q", quoted, got)
+	}
+	blank, _ := json.Marshal(`{"token":""}`)
+	if got := storageToken(string(blank)); got != "" {
+		t.Fatalf("expected empty token, got %q", got)
+	}
+	if got := storageToken("not json"); got != "" {
+		t.Fatalf("expected empty token for invalid payload, got %q", got)
+	}
+	if got := storageToken(`"plain token"`); got != "" {
+		t.Fatalf("expected empty token for payload without JSON body, got %q", got)
+	}
+}
+
 func TestSessionCookieValidation(t *testing.T) {
 	for _, s := range []string{"", "PHPSESSID=abc", "notphpdisk_info=x", "phpdisk_info="} {
 		if validSession(s) {
