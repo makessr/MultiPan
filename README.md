@@ -18,15 +18,37 @@
 
 已接入蓝奏云、夸克网盘、123 云盘、百度网盘、光鸭云盘、诚通网盘（网页版，实验）、诚通 WebDAV 和通用 WebDAV。诚通网页版账号通过内嵌窗口登录，登录成功后自动带回令牌（窗口会同时从请求头和网页本地存储读取，重登不会停在等待登录），列目录时会自动确定账号的工作空间；上传、下载、新建文件夹、改名和删除按网页端同一套请求发送，并和工作空间一起协商。删除会先确认并说明该项目不进回收站，确认后直接删除。接入依赖网页端内部接口，服务端调整后可能失效。
 
+## 界面
+
+以下截图取自 Windows 桌面版，账号与目录仅用于演示。
+
+多网盘上传：选择一次本地文件或文件夹，为每个账号挑选目标目录，上传前统一核对同名冲突。
+
+![多网盘上传：左侧为账号列表，中间放置本地项目，右侧为各账号的目标目录](docs/screenshots/upload.png)
+
+文件管理：按账号浏览目录、搜索、下载、移动，并对选中的项目执行批量操作。
+
+![文件管理：浏览夸克网盘目录，支持下载、批量分享与新建文件夹](docs/screenshots/files.png)
+
+网盘中转：在两个账号之间经本机缓存复制文件或目录，逐项核对后处理源文件。
+
+![网盘中转：选择来源与目标账号后创建中转复制队列](docs/screenshots/relay.png)
+
 ## 下载与安装
 
-支持 Windows 10/11 x64 和 Windows 11 ARM64，需要 Microsoft Edge WebView2 Runtime。
+支持 Windows 10/11 x64、Windows 11 ARM64、Ubuntu 24.04 / Debian 13（amd64 与 arm64）和 macOS（Apple Silicon 与 Intel）。Windows 需要 Microsoft Edge WebView2 Runtime。
 
-1. 打开 [Windows 构建](https://github.com/makessr/MultiPan/actions/workflows/windows.yml)，选择 `main` 分支最近一次通过的构建。
-2. 登录 GitHub 后，在该次运行的产物区下载对应架构的 `MultiPan-Windows-x64` 或 `MultiPan-Windows-arm64` 并解压。
-3. 运行 `multipan.exe` 直接试用，用 `MultiPan-setup.exe` 安装到当前用户，或用 `MultiPan-all-users.msi` 安装到所有用户。全用户安装需要确认 UAC。压缩包内附 SHA-256 摘要和[试用指南](TRIAL-GUIDE.txt)。全用户安装后，`MultiPan-setup.exe --action install --inspect-machine-integration --silent` 会以 `"installer": "msi"` 报告系统级登记的归属，卸载请走「设置 → 应用」。
+1. 打开[最新正式版](https://github.com/makessr/MultiPan/releases/latest)，或从 [Releases](https://github.com/makessr/MultiPan/releases) 选择具体版本。当前正式版为 1.0.0。
+2. 按系统和架构下载对应文件，并用附带的 `.sha256` 摘要核对：
+   - Windows x64：`multipan.exe` 直接试用，`MultiPan-setup.exe` 安装到当前用户，`MultiPan-1.0.0-windows-x64-all-users.msi` 安装到所有用户
+   - Windows ARM64：`multipan-windows-arm64.exe`、`MultiPan-1.0.0-windows-arm64-setup.exe`、同架构 MSI
+   - Linux：`multipan_1.0.0_amd64.deb` 或 `multipan_1.0.0_arm64.deb`
+   - macOS：`MultiPan-1.0.0-amd64-macOS.zip` 或 `MultiPan-1.0.0-arm64-macOS.zip`
+3. 想试最新的开发构建时，从 [Windows 构建](https://github.com/makessr/MultiPan/actions/workflows/windows.yml) 或 [Linux 与 macOS 构建](https://github.com/makessr/MultiPan/actions/workflows/desktop-unix.yml) 的产物区下载对应架构的压缩包。压缩包内附 SHA-256 摘要和[试用指南](TRIAL-GUIDE.txt)。
 
-Actions 产物为未签名构建。1.0.0 正式版按项目决定不带 Authenticode 证书，安装和打开时系统可能提示「未知发布者」，请用 Release 页的 SHA-256 摘要核对文件；仓库日后配置证书后，Windows 产物会自动带上签名与时间戳（见[Windows 代码签名](docs/WINDOWS-SIGNING.md)）。首次使用时，在左侧「我的网盘」添加账号，然后打开「多网盘上传」选择本地文件和目标目录。
+全用户安装需要确认 UAC。安装后，`MultiPan-setup.exe --action install --inspect-machine-integration --silent` 会以 `"installer": "msi"` 报告系统级登记的归属，卸载请走「设置 → 应用」。
+
+1.0.0 正式版按项目决定不带 Authenticode 证书，Actions 产物同样未签名：安装和打开时系统可能提示「未知发布者」，请用 Release 页的 SHA-256 摘要核对文件；仓库日后配置证书后，Windows 产物会自动带上签名与时间戳（见[Windows 代码签名](docs/WINDOWS-SIGNING.md)）。首次使用时，在左侧「我的网盘」添加账号，然后打开「多网盘上传」选择本地文件和目标目录。
 
 ### Linux
 
@@ -54,7 +76,7 @@ Windows 客户端可在「传输设置 → 应用更新」检查 [GitHub Release
 | 待推进 | 盘内文件操作 | 补夸克原生复制和蓝奏文件夹移动。 |
 | 停止推进 | 跨网盘复制与搬运 | 保留已交付的夸克与光鸭原件预读（单文件 8 GiB、单批或目录 16 GiB），不再扩大可核对的来源范围，删源搬运按范围暂停。 |
 | 延后 | 诚通公开分享 | 核对 WebDAV 账号与公开分享所需独立登录会话之间的授权方式。 |
-| 已发布 | 正式发布 | 1.0.0 已作为正式版发布（不带 Authenticode 签名）。Windows x64 和 ARM64 更新均已接入。系统级安装已在隔离环境验证首次安装中断后归档重试、升级中断后恢复原版。发布前核对包含双架构 APT 仓库校验。Windows 开发安装器可只读核对系统级登记和公共快捷方式。全用户 MSI 已进入开发版，实际 UAC、跨用户启动及卸载待验收。Linux 仓库已发布在 GitHub Pages 的签名 APT 源上。macOS 提供未公证预览包。 |
+| 已发布 | 正式发布 | 1.0.0 已作为正式版发布（不带 Authenticode 签名）。Windows x64 和 ARM64 更新均已接入。系统级安装已在隔离环境验证首次安装中断后归档重试、升级中断后恢复原版。发布前核对包含双架构 APT 仓库校验。Windows 开发安装器可只读核对系统级登记和公共快捷方式。全用户 MSI 已随 1.0.0 发布，实际 UAC、跨用户启动及卸载待验收。Linux 仓库已发布在 GitHub Pages 的签名 APT 源上。macOS 提供未公证预览包。 |
 
 夸克和光鸭原件预读支持单文件 8 GiB、单批或目录 16 GiB。夸克缺少修改时间时可通过完整内容核对完成中转复制。Windows 系统级安装隔离预检可识别被修改的卸载命令和快捷方式。受保护卸载已在隔离目录验证文件占用、篡改拒绝和重新安装。
 
