@@ -2,7 +2,8 @@
  [Parameter(Mandatory)][ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Commit,
  [ValidatePattern('^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$')][string]$Repository='makessr/MultiPan',
  [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+(?:-preview\.[0-9]+)?$')][string]$DraftTag,
- [string]$WindowsAssetsDirectory
+ [string]$WindowsAssetsDirectory,
+ [switch]$Unsigned
 )
 
 $ErrorActionPreference = 'Stop'
@@ -59,7 +60,7 @@ function Confirm-DraftAssets {
  if ($preview -ne $draft.isPrerelease) { throw '草稿的预发布标记与标签不一致。' }
 
  $packages = @("MultiPan-$version-windows-arm64-setup.exe")
- if ($preview) {
+ if ($preview -or $Unsigned) {
   $packages += @('MultiPan-setup.exe','multipan.exe','multipan-windows-arm64.exe')
  } else {
   $packages += "MultiPan-$version-windows-x64-setup.exe"
@@ -67,12 +68,12 @@ function Confirm-DraftAssets {
  if ($IncludeUnix) {
   foreach ($arch in @('amd64','arm64')) {
    $packages += ('multipan_{0}_{1}.deb' -f $version,$arch)
-   if ($preview) { $packages += "MultiPan-$version-$arch-macOS.zip" }
+   if ($preview -or $Unsigned) { $packages += "MultiPan-$version-$arch-macOS.zip" }
   }
  }
  $required = @('LICENSE','THIRD_PARTY_NOTICES.md')
  foreach ($package in $packages) { $required += @($package,"$package.sha256") }
- if (!$preview) { $required += @('update.json','update.sig','update-windows-arm64.json','update-windows-arm64.sig') }
+ if (!$preview -and !$Unsigned) { $required += @('update.json','update.sig','update-windows-arm64.json','update-windows-arm64.sig') }
  $verified = @{}
  foreach ($asset in @($draft.assets)) {
   if ($asset.state -eq 'uploaded' -and $asset.size -gt 0 -and $asset.digest -match '^sha256:[0-9a-f]{64}$') {

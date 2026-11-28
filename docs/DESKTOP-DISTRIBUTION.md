@@ -52,6 +52,8 @@ gpgv --keyring ./key.gpg InRelease
 
 使用 GitHub Pages 时留意站点容量上限，保留多个版本的两种架构安装包会持续占用空间。 [GitHub Pages 限制](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
 
+同一版本号重新构建后重新发布会遇到 `--retain-from` 里已有同名安装包的情况。这种「版本号相同、内容不同」属于重新构建，脚本保留新包并打印提示，旧索引仍可通过 by-hash 取到；如果确实写错了版本号或架构，请先改正再发布，不要依赖这条回退。
+
 需要完全手动生成时，在 Linux 上运行下面的命令。输出目录须不存在，脚本生成 `pool/`、`dists/` 和 `multipan-archive-keyring.gpg`；私钥留在签名机器上。手动生成的仓库必须使用同一把密钥，否则已导入旧公钥的用户无法验证。
 
 ```bash
