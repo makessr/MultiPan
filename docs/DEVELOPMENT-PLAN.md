@@ -1,5 +1,14 @@
 # MultiPan 后续开发计划
 
+## 发布脚本适配无签名正式版（2026-11-28）
+
+1.0.0 按项目决定不带 Authenticode 签名，正式版发布物里没有 `MultiPan-<版本>-windows-x64-setup.exe`，也没有在线更新清单和签名，`scripts/check-release-readiness.ps1` 原来的正式版分支因此核对失败。这一节记录为这条路线补的适配。
+
+- `scripts/check-release-readiness.ps1` 新增 `-Unsigned`：正式版标签下允许使用实际发布的安装包命名（`MultiPan-setup.exe`、`multipan.exe`、`multipan-windows-arm64.exe`、`MultiPan-<版本>-windows-arm64-setup.exe`、双架构 deb 与 macOS zip），跳过 `update.json`、`update.sig`、`update-windows-arm64.json`、`update-windows-arm64.sig`；`LICENSE`、`THIRD_PARTY_NOTICES.md`、各平台附件及 `.sha256`、目标提交与 CI 作业的核对保持不变。配置证书后可去掉该开关。
+- `scripts/prepare-apt-repository.sh` 处理「同一版本重新构建」：`--retain-from` 遇到同名但内容不同的安装包时，如果该包正是本次发布的版本，则保留新包并在标准错误打印提示，旧索引仍可通过 by-hash 取到；其它情况的同名冲突仍然报错。这是上次预览版 0.99.0 重发时 APT 工作流失败（`同名 Debian 包内容不同`）的根因。
+- 文档：`docs/RELEASE-CHECKLIST.md` 第 5 步给出 `-Unsigned` 的用法与差异，第 4 步的更新清单要求标注为仅限签名正式版；`docs/DESKTOP-DISTRIBUTION.md` 的 APT 发布段补上同版本重新构建的说明。
+- 验证：`-Unsigned` 在本机对 `v1.0.0` 草稿跑通（`WindowsCI`、`LinuxMacOSCI` 取到 run 46149451132 / 46149451111，`VerifiedDraftAssets=18`），发布后 APT 工作流 run 46150349492 成功，`dists/stable/main/binary-amd64/Packages` 里是 1.0.0，`gpgv` 输出 `Good signature`。
+
 ## 1.0.0 正式发布（2026-11-28）
 
 用户决定不采购代码签名证书，直接以 1.0.0 正式版发布。三处版本源（`frontend/src/version.ts`、`build/windows/info.json`、`build/config.yml`）用 `scripts/set-version.ps1` 升到 1.0.0，README 与 CHANGELOG 同步。

@@ -93,8 +93,13 @@ retain_snapshot() {
     fi
     if [[ -e "$package" ]]; then
       if ! cmp -s -- "$archive" "$package"; then
-        printf '同名 Debian 包内容不同：%s\n' "$package" >&2
-        return 1
+        if [[ "$(basename -- "$package")" == "multipan_${release_version}_${arch}.deb" ]]; then
+          # 同一版本重新构建时以新包为准：旧索引仍可通过 by-hash 取到旧索引文件。
+          printf '版本 %s 的安装包已重新构建，保留新包：%s\n' "$release_version" "$package" >&2
+        else
+          printf '同名 Debian 包内容不同：%s\n' "$package" >&2
+          return 1
+        fi
       fi
     else
       install -Dm644 -- "$archive" "$package"
