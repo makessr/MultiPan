@@ -26,13 +26,13 @@
 2. 登录 GitHub 后，在该次运行的产物区下载对应架构的 `MultiPan-Windows-x64` 或 `MultiPan-Windows-arm64` 并解压。
 3. 运行 `multipan.exe` 直接试用，用 `MultiPan-setup.exe` 安装到当前用户，或用 `MultiPan-all-users.msi` 安装到所有用户。全用户安装需要确认 UAC。压缩包内附 SHA-256 摘要和[试用指南](TRIAL-GUIDE.txt)。全用户安装后，`MultiPan-setup.exe --action install --inspect-machine-integration --silent` 会以 `"installer": "msi"` 报告系统级登记的归属，卸载请走「设置 → 应用」。
 
-Actions 产物为未签名的预览构建；仓库配置代码签名证书后，Windows 产物会自动带上 Authenticode 签名与时间戳（见[Windows 代码签名](docs/WINDOWS-SIGNING.md)）。首次使用时，在左侧「我的网盘」添加账号，然后打开「多网盘上传」选择本地文件和目标目录。
+Actions 产物为未签名构建。1.0.0 正式版按项目决定不带 Authenticode 证书，安装和打开时系统可能提示「未知发布者」，请用 Release 页的 SHA-256 摘要核对文件；仓库日后配置证书后，Windows 产物会自动带上签名与时间戳（见[Windows 代码签名](docs/WINDOWS-SIGNING.md)）。首次使用时，在左侧「我的网盘」添加账号，然后打开「多网盘上传」选择本地文件和目标目录。
 
 ### Linux
 
 Ubuntu 24.04 或 Debian 13 桌面提供独立的 amd64 和 arm64 安装包。运行 `dpkg --print-architecture` 确认架构，从 [GitHub Releases](https://github.com/makessr/MultiPan/releases) 或 [Linux 与 macOS 构建](https://github.com/makessr/MultiPan/actions/workflows/desktop-unix.yml) 下载对应的 `.deb`，再运行 `sudo apt install ./安装包文件名.deb`。Linux 通过手动导入登录信息添加账号，WebDAV 沿用用户名和密码。
 
-也可以在核对公钥指纹后加入签名 APT 源 `https://makessr.github.io/MultiPan`，用 `sudo apt install multipan` 安装，之后随 `sudo apt update` 升级。每个公开发布的版本会自动更新该源，并保留上一版安装包供旧缓存访问；需要补发时在「Actions → 发布 APT 仓库」手动指定标签运行。源内目前提供 0.99.0 的 amd64 与 arm64 安装包。
+也可以在核对公钥指纹后加入签名 APT 源 `https://makessr.github.io/MultiPan`，用 `sudo apt install multipan` 安装，之后随 `sudo apt update` 升级。每个公开发布的版本会自动更新该源，并保留上一版安装包供旧缓存访问；需要补发时在「Actions → 发布 APT 仓库」手动指定标签运行。源内目前提供 1.0.0 的 amd64 与 arm64 安装包。
 
 Linux 构建、APT 源发布及保留历史索引的流程见[桌面版分发文档](docs/DESKTOP-DISTRIBUTION.md#发布-apt-源)。
 
@@ -42,7 +42,7 @@ Linux 构建、APT 源发布及保留历史索引的流程见[桌面版分发文
 
 ### Windows 在线更新
 
-Windows 客户端可在「传输设置 → 应用更新」检查 [GitHub Releases](https://github.com/makessr/MultiPan/releases) 中的正式版本。下载优先走 gh-proxy.com 和 ghproxy.net，失败时自动切换，GitHub 直连兜底。发布方可按[签名与发布流程](docs/UPDATE-RELEASE.md)一次准备并核对 x64 和 ARM64 的安装包及更新附件，覆盖首次安装与旧版升级。
+Windows 客户端可在「传输设置 → 应用更新」检查 [GitHub Releases](https://github.com/makessr/MultiPan/releases) 中的正式版本。下载优先走 gh-proxy.com 和 ghproxy.net，失败时自动切换，GitHub 直连兜底。1.0.0 不带 Authenticode 证书，客户端会拒绝安装未签名的更新包，因此本版请从 Releases 手动下载覆盖安装；配置证书后再按[签名与发布流程](docs/UPDATE-RELEASE.md)恢复自动更新，并核对 x64 和 ARM64 的清单与安装包。
 
 
 ## 开发计划
@@ -54,7 +54,7 @@ Windows 客户端可在「传输设置 → 应用更新」检查 [GitHub Release
 | 待推进 | 盘内文件操作 | 补夸克原生复制和蓝奏文件夹移动。 |
 | 停止推进 | 跨网盘复制与搬运 | 保留已交付的夸克与光鸭原件预读（单文件 8 GiB、单批或目录 16 GiB），不再扩大可核对的来源范围，删源搬运按范围暂停。 |
 | 延后 | 诚通公开分享 | 核对 WebDAV 账号与公开分享所需独立登录会话之间的授权方式。 |
-| 待推进 | 正式发布 | Windows x64 和 ARM64 更新均已接入。系统级安装已在隔离环境验证首次安装中断后归档重试、升级中断后恢复原版。发布前核对包含双架构 APT 仓库校验。Windows 开发安装器可只读核对系统级登记和公共快捷方式。Windows 当前通过无证书预发布手动安装和升级，签名流程已就位、待证书。全用户 MSI 已进入开发版，实际 UAC、跨用户启动及卸载待验收。Linux 仓库已发布在 GitHub Pages 的签名 APT 源上。macOS 提供未公证预览包。 |
+| 已发布 | 正式发布 | 1.0.0 已作为正式版发布（不带 Authenticode 签名）。Windows x64 和 ARM64 更新均已接入。系统级安装已在隔离环境验证首次安装中断后归档重试、升级中断后恢复原版。发布前核对包含双架构 APT 仓库校验。Windows 开发安装器可只读核对系统级登记和公共快捷方式。全用户 MSI 已进入开发版，实际 UAC、跨用户启动及卸载待验收。Linux 仓库已发布在 GitHub Pages 的签名 APT 源上。macOS 提供未公证预览包。 |
 
 夸克和光鸭原件预读支持单文件 8 GiB、单批或目录 16 GiB。夸克缺少修改时间时可通过完整内容核对完成中转复制。Windows 系统级安装隔离预检可识别被修改的卸载命令和快捷方式。受保护卸载已在隔离目录验证文件占用、篡改拒绝和重新安装。
 

@@ -18,6 +18,6 @@
 4. 从已核对的构建选择发布文件，并检查版本、系统、架构、SHA-256 和许可证。打包 Linux 版本时，为 amd64 和 arm64 各提供一个 Debian 安装包和对应的 SHA-256 文件。正式在线更新按对应平台要求核对发布签名和更新元数据。Windows 产物若已用证书构建，还要按[代码签名](WINDOWS-SIGNING.md)核对 `Get-AuthenticodeSignature` 为 `Valid`、带时间戳、签名者正确，并确认 `.sha256` 是签名之后算出的。macOS 以[未公证预览版](DESKTOP-DISTRIBUTION.md#macos-预览版)分发。准备预发布草稿时，核对 Apple Silicon 和 Intel 的 ZIP 及配套 SHA-256，并在发布说明标注「未公证」。
 5. 在 GitHub Releases 创建草稿并核对附件。未签名的预览版标记为预发布，用于手动安装。上传后可用同一脚本加上草稿标签，核对标签、目标 SHA、平台附件和 GitHub SHA-256 摘要。正式标签也检查双架构更新清单及签名文件是否齐全。传入 `-WindowsAssetsDirectory` 可进一步核对 GitHub 摘要和本地正式附件是否一致。产物内容和签名仍按第 4 步核对。确认草稿中的提交和产物都通过检查后再公开。
 
-   示例：`./scripts/check-release-readiness.ps1 -Commit $commit -DraftTag v0.99.0-preview.1`。
+   示例：`./scripts/check-release-readiness.ps1 -Commit $commit -DraftTag v1.0.0`。
 
 6. 发布公开后，等待「发布 APT 仓库」工作流更新 GitHub Pages，再核对 `https://makessr.github.io/MultiPan/dists/stable/InRelease` 的签名和公钥指纹是否为 `97A1 4173 6BE4 B311 C722  2B2F D0C7 755B 6F08 A8C2`。需要重发或补发时在「Actions → 发布 APT 仓库」手动指定标签运行。工作流缺少 `APT_SIGNING_KEY` 会直接失败，不要跳过签名。

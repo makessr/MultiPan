@@ -26,7 +26,7 @@ wix extension add --global WixToolset.UI.wixext/5.0.2
 
 ```bash
 wails3 task linux:create:deb APP_NAME=multipan
-sudo apt install "./bin/multipan_0.99.0_$(dpkg --print-architecture).deb"
+sudo apt install "./bin/multipan_1.0.0_$(dpkg --print-architecture).deb"
 ```
 
 ### 发布 APT 源
@@ -57,7 +57,7 @@ gpgv --keyring ./key.gpg InRelease
 ```bash
 apt_fingerprint='97A141736BE4B311C7222B2FD0C7755B6F08A8C2'
 bash scripts/prepare-apt-repository.sh \
-  bin/multipan_0.99.0_amd64.deb bin/multipan_0.99.0_arm64.deb \
+  bin/multipan_1.0.0_amd64.deb bin/multipan_1.0.0_arm64.deb \
   "$apt_fingerprint" bin/apt-repository
 ```
 

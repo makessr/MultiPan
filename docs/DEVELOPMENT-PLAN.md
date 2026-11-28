@@ -1,5 +1,14 @@
 # MultiPan 后续开发计划
 
+## 1.0.0 正式发布（2026-11-28）
+
+用户决定不采购代码签名证书，直接以 1.0.0 正式版发布。三处版本源（`frontend/src/version.ts`、`build/windows/info.json`、`build/config.yml`）用 `scripts/set-version.ps1` 升到 1.0.0，README 与 CHANGELOG 同步。
+
+- 发布物：Windows x64 / ARM64 便携版 EXE、当前用户安装程序、全用户 MSI，Linux amd64 / arm64 deb，macOS amd64 / arm64 zip，均附 SHA-256，另含 LICENSE、THIRD_PARTY_NOTICES.md、TRIAL-GUIDE.txt。
+- 未签名的影响已知并接受：安装和首次运行会提示「未知发布者」，SmartScreen 需要按摘要核对；客户端拒绝安装未带 Authenticode 签名的更新包，本版不提供自动更新，升级需手动下载覆盖安装。签名链路（`scripts/sign-windows-bundle.ps1`、`docs/WINDOWS-SIGNING.md`）保留，日后配置证书即可恢复自动更新。
+- Linux 的 APT 源在发布事件触发后自动重建索引，`apt install multipan` 会拿到 1.0.0；仓库自身用 GPG 签名，与 Windows Authenticode 无关。
+- 待验收：真实 Windows 机器上的安装/升级/卸载、全用户 MSI 的 UAC 与跨用户启动、Linux `apt update` 与安装、macOS 首次打开（需在「系统设置 → 隐私与安全性」放行）。
+
 ## Windows 代码签名流程（2026-11-28）
 
 预览版一直是无证书产物，正式发布却要求可信 Authenticode 签名（`scripts/prepare-windows-release.ps1` 会拒绝未签名安装包），缺的是可复用的签名链路。本次把这条链路补齐，证书到位后即可直接出签名包。
