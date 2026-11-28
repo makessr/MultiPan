@@ -1,5 +1,27 @@
 # MultiPan 后续开发计划
 
+## Windows 代码签名流程（2026-11-28）
+
+预览版一直是无证书产物，正式发布却要求可信 Authenticode 签名（`scripts/prepare-windows-release.ps1` 会拒绝未签名安装包），缺的是可复用的签名链路。本次把这条链路补齐，证书到位后即可直接出签名包。
+
+- `scripts/sign-windows-bundle.ps1`：用 PFX（文件或 base64，对应 CI secret）或本机证书指纹签名 EXE / MSI，默认走 `http://timestamp.digicert.com` 的 RFC 3161 时间戳（`/tr` 加 `/td SHA256`，URL 需要去掉尾斜杠，否则 signtool 报 `Invalid Timestamp URL`），签名后按实际字节重写同名 `.sha256`。`-AllowUntrustedSigner` 只给自检用，生产路径要求 `signtool verify /pa` 通过。
+- `scripts/check-signing-pipeline.ps1`：临时生成未签名 EXE（`go build`）+ 一次性自签名证书，验证签名者、时间戳开关与校验和重写，不依赖真实证书也无需联网；`scripts/build.ps1` 检测到 `signtool.exe` 时自动运行。
+- `.github/workflows/windows.yml`：job 级 `env` 读取 `MULTIPAN_SIGN_PFX_BASE64` / `MULTIPAN_SIGN_PFX_PASSWORD` 两个 secret，在安装包验证之后签名 `bin/multipan.exe`、`bin/MultiPan-setup.exe`、`bin/MultiPan-all-users.msi`；未配置时在步骤摘要注明产物未签名，配置后签名失败会直接让任务失败。
+- 文档：新增 `docs/WINDOWS-SIGNING.md`（证书要求、secret 配置、本地签名、核对命令、SmartScreen 说明、ARM64 运行器可能缺 signtool 的限制）；`docs/RELEASE-CHECKLIST.md` 第 4 步与 `docs/DESKTOP-DISTRIBUTION.md` 的 Windows 段都加了核对入口。
+- 待验收：需要用户提供 CA 签发的代码签名证书（PFX）并写入两个 secret，之后跑一次 Windows 构建，核对 `Get-AuthenticodeSignature` 为 `Valid`、带时间戳、签名者正确，再用正式发布脚本验证在线更新清单。
+
+## 分享写入接口复核与版本号脚本（2026-11-28）
+
+用户要求把「分享管理剩余四项」「代码签名」「版本号 1.0.0」一起推进。签名链路见上一节；这一节记录分享写入接口的复核结果与版本号脚本。
+
+- 新增 `scripts/set-version.ps1`（`-Version x.y.z`，`-DryRun` 只检查）：先核对 `frontend/src/version.ts`、`build/windows/info.json`、`build/config.yml` 三处一致，再一并改写 JSON 里的 `file_version`、`product_version`、`0409.FileVersion`、`0409.ProductVersion`。本次只加了脚本，版本仍是 0.99.0。
+- 分享写入接口按公开源码做了一轮穷举（完整记录在 `docs/drafts/share-write-apis.md`，不随仓库发布）：
+  - 123 云盘的更新与撤销请求与现有实现完全一致——更新是 `PUT /restful/goapi/v1/share/update`（`shareId`、`expiration`、`shareName`、`trafficSwitch`、`trafficLimitSwitch`、`trafficLimit`，普通分享另有 `noLoginStdAmount`），撤销是 `POST /share/delete`（`event: "shareCancel"`）。编辑弹窗里没有提取码字段，**改提取码仍无依据**。
+  - 夸克未登录时只有营销页，第三方封装仅覆盖创建、详情、换链接口令（`share/password`，入参只有 `share_id`）和撤销，未找到任何修改已有分享设置的写入命令。
+  - 百度只确认撤销 `POST /share/cancel`（`shareid_list`）与列表 `GET /share/record`；`POST /share/mexpire` 只有定义、没有调用点，参数未知，不能作为修改期限或提取码的依据。
+- 结论：能做的只有三家的「主题/期限/下载设置」编辑（已实现），「改提取码、改价」需要用户在该网盘网页端真实操作一次并抓取请求头与请求体。`docs/SHARE-MANAGEMENT.md` 的「待确认的服务商能力」已按本次结论重写。
+- 版本号建议：暂不升 1.0.0，等代码签名证书到位并完成一轮实机验收后再升，1.0.0 作为「正式可信发布」的里程碑。
+
 ## 诚通网盘（网页版）接入（2026-11-27）
 
 诚通官方下线了「手机号 + 短信」和「邮箱 + 密码」换 `session` 的开放接口（返回 HTTP 410），程序里的短信与密码登录已经停用，只保留官方密钥面板和 Session 输入。用户要求按蓝奏的方式模拟网页端内部接口，因此新增独立账号类型 `ctweb`。

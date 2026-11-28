@@ -6,7 +6,7 @@
 
 在 Windows 构建的同次产物中选择 x64 或 ARM64，核对 `MultiPan-all-users.msi.sha256`，双击 MSI 并确认 Windows UAC。安装向导默认安装程序和公共开始菜单中的「MultiPan（所有用户）」。在功能选择页可启用「公共桌面快捷方式」。程序放在系统的 64 位 Program Files 下的 MultiPan 目录。首次安装发现已有同名目录或快捷方式时会停止，便于先确认其归属。
 
-Windows Installer 负责系统范围登记、同版本修复、版本升级和卸载。升级前退出所有用户会话中的 MultiPan，再运行新版本的同架构 MSI。卸载入口为「设置 → 应用 → 已安装的应用 → MultiPan（所有用户）→ 卸载」。各 Windows 用户账号的网盘配置和传输记录仍保存在各自的配置目录中。无证书预览通过人工下载和升级。
+Windows Installer 负责系统范围登记、同版本修复、版本升级和卸载。升级前退出所有用户会话中的 MultiPan，再运行新版本的同架构 MSI。卸载入口为「设置 → 应用 → 已安装的应用 → MultiPan（所有用户）→ 卸载」。各 Windows 用户账号的网盘配置和传输记录仍保存在各自的配置目录中。无证书预览通过人工下载和升级；配置签名证书后，构建会按[Windows 代码签名](WINDOWS-SIGNING.md)给 EXE、安装程序和 MSI 加 Authenticode 签名与时间戳。
 
 手动构建时使用 WiX 5.0.2 及同版本的 `WixToolset.UI.wixext`，先构建所需架构的客户端，再运行以下命令。构建自动读取客户端 PE 版本及架构，生成 MSI 和 SHA-256。检查脚本读取 MSI 数据库，`-Extract` 在可运行该架构 Windows Installer 的机器上验证冲突检测和内嵌文件。
 

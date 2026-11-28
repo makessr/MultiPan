@@ -56,6 +56,25 @@ node ./tools/check-batch-share-revoke.mjs
 if ($LASTEXITCODE -ne 0) { throw 'Batch share revocation checks failed' }
 node ./tools/check-pending-review.mjs
 if ($LASTEXITCODE -ne 0) { throw 'Pending review checks failed' }
+# Validate the Authenticode signing pipeline when the runner has signtool, so a
+# broken release signature step fails here instead of during a release.
+$signToolFound = [bool](Get-Command signtool.exe -CommandType Application -ErrorAction SilentlyContinue)
+if (-not $signToolFound) {
+ foreach ($kits in @((Join-Path $env:ProgramFiles 'Windows Kits\10\bin'), (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'))) {
+  if ($signToolFound -or -not (Test-Path -LiteralPath $kits -PathType Container)) { continue }
+  $signToolFound = [bool](Get-ChildItem -LiteralPath $kits -Directory -ErrorAction SilentlyContinue |
+   Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+   ForEach-Object { Join-Path $_.FullName 'x64\signtool.exe' } |
+   Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+   Select-Object -First 1)
+ }
+}
+if ($signToolFound) {
+ powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-signing-pipeline.ps1
+ if ($LASTEXITCODE -ne 0) { throw 'Signing pipeline checks failed' }
+} else {
+ Write-Host 'Skipping Authenticode signing pipeline checks: signtool.exe was not found.'
+}
 # Exercise the actual GUI executable and hidden-console helper launch flags.
 # The login window appears briefly; this does not enter credentials or upload files.
 if ($SkipDesktopSmoke) {

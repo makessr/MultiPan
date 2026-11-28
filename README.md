@@ -26,7 +26,7 @@
 2. 登录 GitHub 后，在该次运行的产物区下载对应架构的 `MultiPan-Windows-x64` 或 `MultiPan-Windows-arm64` 并解压。
 3. 运行 `multipan.exe` 直接试用，用 `MultiPan-setup.exe` 安装到当前用户，或用 `MultiPan-all-users.msi` 安装到所有用户。全用户安装需要确认 UAC。压缩包内附 SHA-256 摘要和[试用指南](TRIAL-GUIDE.txt)。全用户安装后，`MultiPan-setup.exe --action install --inspect-machine-integration --silent` 会以 `"installer": "msi"` 报告系统级登记的归属，卸载请走「设置 → 应用」。
 
-Actions 产物为未签名的预览构建。首次使用时，在左侧「我的网盘」添加账号，然后打开「多网盘上传」选择本地文件和目标目录。
+Actions 产物为未签名的预览构建；仓库配置代码签名证书后，Windows 产物会自动带上 Authenticode 签名与时间戳（见[Windows 代码签名](docs/WINDOWS-SIGNING.md)）。首次使用时，在左侧「我的网盘」添加账号，然后打开「多网盘上传」选择本地文件和目标目录。
 
 ### Linux
 
@@ -54,7 +54,7 @@ Windows 客户端可在「传输设置 → 应用更新」检查 [GitHub Release
 | 待推进 | 盘内文件操作 | 补夸克原生复制和蓝奏文件夹移动。 |
 | 停止推进 | 跨网盘复制与搬运 | 保留已交付的夸克与光鸭原件预读（单文件 8 GiB、单批或目录 16 GiB），不再扩大可核对的来源范围，删源搬运按范围暂停。 |
 | 延后 | 诚通公开分享 | 核对 WebDAV 账号与公开分享所需独立登录会话之间的授权方式。 |
-| 待推进 | 正式发布 | Windows x64 和 ARM64 更新均已接入。系统级安装已在隔离环境验证首次安装中断后归档重试、升级中断后恢复原版。发布前核对包含双架构 APT 仓库校验。Windows 开发安装器可只读核对系统级登记和公共快捷方式。Windows 当前通过无证书预发布手动安装和升级。全用户 MSI 已进入开发版，实际 UAC、跨用户启动及卸载待验收。Linux 仓库已发布在 GitHub Pages 的签名 APT 源上。macOS 提供未公证预览包。 |
+| 待推进 | 正式发布 | Windows x64 和 ARM64 更新均已接入。系统级安装已在隔离环境验证首次安装中断后归档重试、升级中断后恢复原版。发布前核对包含双架构 APT 仓库校验。Windows 开发安装器可只读核对系统级登记和公共快捷方式。Windows 当前通过无证书预发布手动安装和升级，签名流程已就位、待证书。全用户 MSI 已进入开发版，实际 UAC、跨用户启动及卸载待验收。Linux 仓库已发布在 GitHub Pages 的签名 APT 源上。macOS 提供未公证预览包。 |
 
 夸克和光鸭原件预读支持单文件 8 GiB、单批或目录 16 GiB。夸克缺少修改时间时可通过完整内容核对完成中转复制。Windows 系统级安装隔离预检可识别被修改的卸载命令和快捷方式。受保护卸载已在隔离目录验证文件占用、篡改拒绝和重新安装。
 
@@ -70,7 +70,9 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 ./scripts/package-installer.ps1 -ApplicationPath bin/multipan.exe -OutputPath bin/MultiPan-setup.exe
 ```
 
-请确认 `wails3` 所在的 Go 工具目录已加入 `PATH`。构建脚本生成图标和 Wails 绑定，运行 Go 测试、Go vet 和前端专项检查。本地默认额外检查五家网盘的登录窗口能否打开。CI 使用同一构建脚本，跳过需要交互桌面的登录窗口检查，并打包、核对安装器及上传产物。
+请确认 `wails3` 所在的 Go 工具目录已加入 `PATH`。构建脚本生成图标和 Wails 绑定，运行 Go 测试、Go vet 和前端专项检查。本地默认额外检查五家网盘的登录窗口能否打开，装有 Windows SDK 时再运行一次代码签名自检。CI 使用同一构建脚本，跳过需要交互桌面的登录窗口检查，并打包、核对安装器及上传产物。
+
+准备新版本时先用 `./scripts/set-version.ps1 -Version 1.0.0` 同步三处版本号（加 `-DryRun` 只检查），再补 CHANGELOG 与 README。配置代码签名证书后，`./scripts/sign-windows-bundle.ps1` 可给已打包的文件补签名与时间戳并重算校验和。
 
 Linux CI 会按架构和 APT 解析出的依赖清单复用 Debian 包缓存。依赖版本变化时自动重新下载。
 
