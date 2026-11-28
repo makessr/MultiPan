@@ -1,0 +1,18 @@
+Package: multipan
+Architecture: amd64
+Version: 1.0.0
+Priority: optional
+Section: utils
+Maintainer: MultiPan <46600469+makessr@users.noreply.github.com>
+Depends: libgtk-4-1, libwebkitgtk-6.0-4, xdg-utils
+Recommends: gnome-keyring
+Filename: pool/main/m/multipan/amd64/multipan_1.0.0_amd64.deb
+Size: 5727888
+MD5sum: ed2fa4a2eb3e17828714a4bc3bd6c124
+SHA1: 8e6cec4e2b4e5b7fe33918611d7948b1025966bf
+SHA256: 3ade07fbb7dc18556810d123ff0d6c7d0b24fb8c046eb1c2732b329914428b00
+SHA512: 047c22426e32b79805c9f57b67b7acd283da87ed1562d785d2e49b75da9067153028e567d95ea2ba037bfec3d988b095625c72a416d13efa2d887693dcc448df
+Homepage: https://github.com/makessr/MultiPan
+Description: MultiPan desktop cloud drive client
+ Manage files and upload to multiple cloud drives.
+

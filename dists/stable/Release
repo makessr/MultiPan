@@ -1,0 +1,18 @@
+Acquire-By-Hash: yes
+Architectures: amd64 arm64
+Codename: stable
+Components: main
+Date: Sat, 28 Nov 2026 13:35:43 +0000
+Label: MultiPan
+Origin: MultiPan
+Suite: stable
+SHA256:
+ e4d5f61ec6beb188114c6976f381aa442484ce2eab5dab4c23d36bad70f2ccbf              750 main/binary-amd64/Packages
+ c42d8e8f187e3dacacc8901e6df8d59997c99ece9064a014b502c631c9107aa2              520 main/binary-amd64/Packages.gz
+ dfd78d9bdecb388bc53a266fe4f43c7fd3db560972ade68e5a9227f4bcfc55d6              750 main/binary-arm64/Packages
+ ba16199d34b4d5d9bfea416d76d38090900c04c802527359e8bd3c24e927de08              522 main/binary-arm64/Packages.gz
+SHA512:
+ 2084379e2f8a96369ffbac11298914bbd69cb99e4c8ed98bafd8abc7de1418ac0404237c84804b8c1b582b38a5a2d6222be98b9a9a1180c704a1b804cc860813              750 main/binary-amd64/Packages
+ b9eb853cf0878b79c166ab0f201489f65ac86f643a3a384d8710403b9bfebd410dc59f1cb1f64e2bdb82b286506a178d31a89d5863969ff7efdaa27a4ee049b0              520 main/binary-amd64/Packages.gz
+ 1c56ec518e9b7603feba3bda271bfd0102f2fb109175b7a83c14ecbdd1f9fffc21390b483de8c9f074c6ec73b7359d81af166637b683d8f80699663ae190a763              750 main/binary-arm64/Packages
+ a7bea962371690b774c52646bb41b0f6ee1faf0a0661c65f2667704895470720961905fc90062fdbc6b76b95abb893dbd54e7f2df70a2889cfa2425abebbc418              522 main/binary-arm64/Packages.gz
