@@ -4,9 +4,9 @@ MultiPan 参考 [ZhanDu 发布流水线](https://github.com/makessr/ZhanDu/blob/
 
 ## 当前 Windows 分发方式
 
-Windows x64 和 ARM64 采用无证书预发布，提供独立安装包及 SHA-256，在 GitHub Releases 手动下载和升级。按[发布前检查](RELEASE-CHECKLIST.md)核对构建、草稿附件和架构。此类预发布不会进入客户端的正式自动更新渠道。
+Windows x64 和 ARM64 采用无证书发布，提供独立安装包及 SHA-256，在 GitHub Releases 手动下载和升级。1.0.0 起按项目决定不采购代码签名证书：客户端会拒绝安装未带 Authenticode 签名的更新包，所以本版仍不提供客户端自动更新，升级请手动下载覆盖安装。按[发布前检查](RELEASE-CHECKLIST.md)核对构建、草稿附件和架构。
 
-以下为留存的正式在线更新流程。恢复该渠道时，需要满足已有客户端的 Authenticode、时间戳和更新清单验签要求。
+以下为留存的正式在线更新流程。恢复该渠道时，需要满足已有客户端的 Authenticode、时间戳和更新清单验签要求，即先取得 CA 签发的代码签名证书并按上一节签名。
 
 ## 更新渠道
 
